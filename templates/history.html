@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Historial de Órdenes</title>
+</head>
+<body>
+  <h1>Historial de Órdenes</h1>
+  <p><a href="{{ url_for('dashboard') }}">← Volver al Dashboard</a></p>
+  <table border="1" cellpadding="4">
+    <tr>
+      <th>Fecha / Hora</th>
+      <th>Cliente (CardCode)</th>
+      <th>Almacén (WhsCode)</th>
+      <th>DocNum</th>
+    </tr>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r['timestamp'] }}</td>
+        <td>{{ r['cardcode'] }}</td>
+        <td>{{ r['whscode'] }}</td>
+        <td>{{ r['docnum'] }}</td>
+      </tr>
+    {% endfor %}
+    {% if not rows %}
+      <tr><td colspan="4">No hay órdenes registradas aún.</td></tr>
+    {% endif %}
+  </table>
+  <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
+</body>
+</html>

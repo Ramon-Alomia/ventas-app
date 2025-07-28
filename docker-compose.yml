@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    image: portal-venta-diaria
+    container_name: portal-venta-diaria
+    restart: unless-stopped
+
+    # ① Montamos el código fuente local en /app
+    volumes:
+      - ./:/app                   # <— tu proyecto completo
+      - ./database.db:/app/database.db  # <— tu BD
+
+    ports:
+      - "5000:5000"
+
+    # ② Entorno de desarrollo para Flask
+    environment:
+      - FLASK_ENV=development
+
+    # ③ Arrancamos con gunicorn en modo 'reload'
+    command: >
+      gunicorn 
+      --reload 
+      --bind 0.0.0.0:5000 
+      app:app
+
+    networks:
+      - appnet
+
+  proxy:
+    # ... (igual que antes)
+

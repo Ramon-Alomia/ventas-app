@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Portal de Venta Diaria</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; max-width: 600px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    button { padding: 4px 8px; }
+  </style>
+</head>
+<body>
+  <h1>Bienvenido, {{ username }}</h1>
+
+  <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+      {% for category, msg in messages %}
+        <li
+  {% if category=='error' %}
+    style="color:red;"
+  {% else %}
+    style="color:green;"
+  {% endif %}
+>
+  {{ msg }}
+</li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <p>Registra tus ventas de hoy (varios menús):</p>
+
+  <form action="{{ url_for('submit') }}" method="post" id="orderForm">
+    <!-- Fecha única para toda la orden -->
+    <label>Fecha:<br>
+      <input type="date" name="date" required>
+    </label>
+    <br><br>
+
+    <table id="lines">
+      <tr>
+        <th>Tipo de comida</th>
+        <th>Cantidad</th>
+        <th>Acción</th>
+      </tr>
+      <tr class="line">
+        <td>
+          <select name="item_code" required>
+            <option value="" disabled selected>Selecciona un menú…</option>
+            {% for item in items %}
+              <option value="{{ item['itemcode'] }}">
+                {{ item['description'] }}
+              </option>
+            {% endfor %}
+          </select>
+        </td>
+        <td>
+          <input type="number" name="quantity" min="1" required oninvalid="this.setCustomValidity('Introduce una cantidad mayor a cero')" oninput="this.setCustomValidity('')">>
+        </td>
+        <td>
+          <button type="button" class="remove">–</button>
+        </td>
+      </tr>
+    </table>
+
+    <p>
+      <button type="button" id="addLine">Añadir línea +</button>
+    </p>
+    <button type="submit">Enviar a SAP</button>
+  </form>
+
+  <!-- CAMBIO 2: enlazar historial y Cerrar sesión dentro del body -->
+  <p>
+    <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+  </p>
+
+  <script>
+    // CAMBIO 3: capturamos la tabla en una variable para usarla en ambos controladores
+    const table = document.getElementById('lines');
+
+    // Clona la primera línea para añadir una nueva
+    document.getElementById('addLine').addEventListener('click', () => {
+      const first = table.querySelector('.line');
+      const clone = first.cloneNode(true);
+      clone.querySelector('input[name="quantity"]').value = '';
+      clone.querySelector('select[name="item_code"]').selectedIndex = 0;
+      table.appendChild(clone);
+    });
+
+    // Permite eliminar líneas (dejando al menos una)
+    table.addEventListener('click', e => {
+      if (e.target.classList.contains('remove')) {
+        const rows = table.querySelectorAll('.line');
+        if (rows.length > 1) {
+          e.target.closest('tr').remove();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
