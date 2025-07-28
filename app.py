@@ -2,34 +2,46 @@ import os
 import sys
 import requests
 import psycopg2
+from flask_talisman import Talisman
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
 
-app = Flask(__name__)
-# Clave secreta para sesiones — configúrala como variable de entorno en Render
-app.secret_key = os.getenv("SECRET_KEY", ";$b0$40~0J=::Xm!0g|")
 
-# URL del Service Layer de SAP — opcionalmente ponla también como env var
+# ─── Configuración de Flask ────────────────────────────────────────────────────
+app = Flask(__name__)
+Talisman(app)
+
+# SECRET_KEY para sesiones: debe definirse en Render como ENV var
+app.secret_key = os.getenv("SECRET_KEY")
+if not app.secret_key:
+    raise RuntimeError("SECRET_KEY no está configurada en las Environment Variables")
+
+# ─── Configuración de Service Layer de SAP ────────────────────────────────────
 SERVICE_LAYER_URL = os.getenv(
     "SERVICE_LAYER_URL",
     "https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1"
 )
-COMPANY_DB    = os.getenv("COMPANY_DB", "PRDBERSA")
-SL_USER       = os.getenv("SL_USER", "brsuser02")
-SL_PASSWORD   = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
+COMPANY_DB  = os.getenv("COMPANY_DB", "PRDBERSA")
+SL_USER     = os.getenv("SL_USER", "brsuser02")
+SL_PASSWORD = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
 
-
+# ─── Función de conexión a PostgreSQL (Neon) ──────────────────────────────────
 def get_db_connection():
-    """Abre una conexión a PostgreSQL usando la URL en la variable DATABASE_URL."""
+    """
+    Abre una conexión a PostgreSQL usando la URL en la variable DATABASE_URL.
+    Neon requiere SSL; la URI debe terminar en ?sslmode=require
+    """
     db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
+    # psycopg2 acepta la URI completa con sslmode
     conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
     return conn
 
-
+# ─── Rutas de la aplicación ────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return redirect(url_for("login"))
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -56,7 +68,6 @@ def login():
         conn.close()
 
         if row:
-            # Guardar sesión
             session["username"] = row["username"]
             session["whscode"]  = row["whscode"]
 
@@ -77,7 +88,6 @@ def login():
             error = "Credenciales inválidas."
     return render_template("login.html", error=error)
 
-
 @app.route("/dashboard")
 def dashboard():
     if "username" not in session:
@@ -96,7 +106,6 @@ def dashboard():
         items=items
     )
 
-
 @app.route("/submit", methods=["POST"])
 def submit():
     if "username" not in session:
@@ -107,7 +116,7 @@ def submit():
         flash("Por favor selecciona una fecha para la orden.", "error")
         return redirect(url_for("dashboard"))
 
-    # Leer líneas de la orden
+    # Lee y filtra las líneas de la orden
     items = request.form.getlist("item_code")
     qtys  = request.form.getlist("quantity")
     lines = []
@@ -159,8 +168,8 @@ def submit():
     )
 
     if resp.status_code in (200, 201):
-        data    = resp.json()
-        docnum  = data.get("DocNum")
+        data     = resp.json()
+        docnum   = data.get("DocNum")
         docentry = data.get("DocEntry")
 
         # Guardar en histórico en PostgreSQL
@@ -194,7 +203,6 @@ def submit():
     else:
         return render_template("result.html", success=False, error=resp.text)
 
-
 @app.route("/history")
 def history():
     if "username" not in session:
@@ -218,12 +226,18 @@ def history():
 
     return render_template("history.html", rows=rows)
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
 
-
+# ─── Entrada principal ────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    # Esto genera un certificado temporario auto‑firmado para HTTPS
+    app.run(
+      debug=False,
+      host="0.0.0.0",
+      port=5000,
+      ssl_context="adhoc"
+    )
+
