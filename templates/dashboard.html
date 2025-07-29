@@ -102,5 +102,34 @@
       }
     });
   </script>
+
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const table  = document.getElementById('lines');
+    const addBtn = document.getElementById('addLine');
+    console.log('table:', table, 'addBtn:', addBtn);
+
+    if (!table || !addBtn) {
+      console.error('No se encontró #lines o #addLine en el DOM');
+      return;
+    }
+
+    addBtn.addEventListener('click', () => {
+      const first = table.querySelector('.line');
+      console.log('clonando línea:', first);
+      if (!first) {
+        console.error('No se encontró ninguna fila .line para clonar');
+        return;
+      }
+      const clone = first.cloneNode(true);
+      clone.querySelector('input[name="quantity"]').value = '';
+      clone.querySelector('select[name="item_code"]').selectedIndex = 0;
+      table.appendChild(clone);
+    });
+  });
+</script>
+
+
 </body>
 </html>
