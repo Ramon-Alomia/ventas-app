@@ -6,10 +6,33 @@ from flask_talisman import Talisman
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
 
-
 # ─── Configuración de Flask ────────────────────────────────────────────────────
 app = Flask(__name__)
-Talisman(app)
+
+# ─── Configuración de seguridad de sesión ───────────────────────────────────────
+app.config.update(
+    SESSION_COOKIE_SECURE=True,      # Solo envía cookie por HTTPS
+    SESSION_COOKIE_HTTPONLY=True,    # JavaScript no puede leer la cookie
+    SESSION_COOKIE_SAMESITE='Lax'    # Protege contra CSRF en algunos casos
+)
+
+# ─── Content Security Policy (CSP) ──────────────────────────────────────────────
+csp = {
+    'default-src': ["'self'"],
+    'script-src':  ["'self'", 'cdnjs.cloudflare.com'],
+    'style-src':   ["'self'", 'cdnjs.cloudflare.com'],
+    'img-src':     ["'self'", 'data:']
+    # agrega aquí más directivas si usas otras fuentes, APIs, etc.
+}
+
+# ─── Inicializar Talisman con CSP y HSTS ────────────────────────────────────────
+Talisman(
+    app,
+    content_security_policy=csp,
+    force_https=True,
+    strict_transport_security=True,
+    strict_transport_security_max_age=31536000
+)
 
 # SECRET_KEY para sesiones: debe definirse en Render como ENV var
 app.secret_key = os.getenv("SECRET_KEY")
