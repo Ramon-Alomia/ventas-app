@@ -3,13 +3,10 @@
 <head>
   <meta charset="utf-8">
   <title>Portal de Venta Diaria</title>
-  <style>
-    table { border-collapse: collapse; width: 100%; max-width: 600px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background: #f0f0f0; }
-    button { padding: 4px 8px; }
-  </style>
+  <!-- Enlace al CSS estático -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
+<body>
 <body>
   <h1>Bienvenido, {{ username }}</h1>
 
@@ -131,5 +128,6 @@
 </script>
 
 
+ <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
