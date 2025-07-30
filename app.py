@@ -5,6 +5,7 @@ import psycopg2
 from flask_talisman import Talisman
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
+from datetime import timedelta
 
 # ─── Configuración de Flask ────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -15,6 +16,10 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,    # JavaScript no puede leer la cookie
     SESSION_COOKIE_SAMESITE='Lax'    # Protege contra CSRF en algunos casos
 )
+
+# ─── Duración de sesión ───────────────────────────────────────────────────────
+# Sesión permanente para que Flask use el lifetime definido
+app.permanent_session_lifetime = timedelta(minutes=30)
 
 # ─── Content Security Policy (CSP) ──────────────────────────────────────────────
 csp = {
@@ -33,6 +38,18 @@ Talisman(
     strict_transport_security=True,
     strict_transport_security_max_age=31536000
 )
+
+@app.after_request
+def apply_secure_headers(response):
+    # Evita que tu app se embeba en iframes de otros sitios (clickjacking)
+    response.headers['X-Frame-Options'] = 'DENY'
+    # Impide que el navegador trate de adivinar el tipo de contenido
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # Controla qué referrer se envía; aquí, no enviar cuando se baja de HTTPS a HTTP
+    response.headers['Referrer-Policy'] = 'no-referrer-when-downgrade'
+    # Opcional: fuerza carga sólo sobre HTTPS
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 # SECRET_KEY para sesiones: debe definirse en Render como ENV var
 app.secret_key = os.getenv("SECRET_KEY")
@@ -91,6 +108,7 @@ def login():
         conn.close()
 
         if row:
+            session.permanent = True      # ← activa el timeout
             session["username"] = row["username"]
             session["whscode"]  = row["whscode"]
 
