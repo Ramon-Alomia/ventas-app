@@ -6,6 +6,19 @@ from flask_talisman import Talisman
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
 from datetime import timedelta
+from argon2 import PasswordHasher, Type
+from argon2.exceptions import VerifyMismatchError
+
+# Configuración Argon2id
+ph = PasswordHasher(
+    time_cost=2,        # iteraciones
+    memory_cost=102400, # memoria en KiB (100 MiB)
+    parallelism=8,      # hilos
+    hash_len=32,        # longitud del hash
+    salt_len=16,        # longitud de la salt
+    type=Type.ID
+)
+
 
 # ─── Configuración de Flask ────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -85,49 +98,57 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    print("Entrando a /login, método:", request.method, file=sys.stderr)
     error = None
     if request.method == "POST":
         user = request.form["username"]
         pwd  = request.form["password"]
 
+        # 1️⃣ Trae solo el hash y el whscode
         conn = get_db_connection()
         cur  = conn.cursor()
-        cur.execute(
-            """
-            SELECT username, password, whscode
+        cur.execute("""
+            SELECT username,
+                   password   AS hashed,
+                   whscode
               FROM users
              WHERE username = %s
-               AND password = %s
                AND active = TRUE
-            """,
-            (user, pwd)
-        )
+        """, (user,))
         row = cur.fetchone()
         cur.close()
         conn.close()
 
         if row:
-            session.permanent = True      # ← activa el timeout
-            session["username"] = row["username"]
-            session["whscode"]  = row["whscode"]
+            try:
+                # 2️⃣ Verifica el hash
+                ph.verify(row["hashed"], pwd)
+            except VerifyMismatchError:
+                error = "Credenciales inválidas."
+            else:
+                # 3️⃣ Autenticación exitosa
+                session.permanent = True
+                session["username"] = row["username"]
+                session["whscode"]  = row["whscode"]
 
-            # Obtener el CardCode del almacén
-            conn = get_db_connection()
-            cur  = conn.cursor()
-            cur.execute(
-                "SELECT cardcode FROM warehouses WHERE whscode = %s",
-                (row["whscode"],)
-            )
-            w = cur.fetchone()
-            cur.close()
-            conn.close()
+                # 4️⃣ Re-hashea si cambian los parámetros de coste
+                if ph.check_needs_rehash(row["hashed"]):
+                    new_hash = ph.hash(pwd)
+                    conn2 = get_db_connection()
+                    cur2  = conn2.cursor()
+                    cur2.execute(
+                        "UPDATE users SET password = %s WHERE username = %s",
+                        (new_hash, user)
+                    )
+                    conn2.commit()
+                    cur2.close()
+                    conn2.close()
 
-            session["cardcode"] = w["cardcode"] if w else None
-            return redirect(url_for("dashboard"))
+                return redirect(url_for("dashboard"))
         else:
             error = "Credenciales inválidas."
+
     return render_template("login.html", error=error)
+
 
 @app.route("/dashboard")
 def dashboard():
@@ -272,13 +293,37 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+def migrate_passwords():
+    """
+    Lee cada usuario con password en texto plano y actualiza el campo
+    por el hash Argon2id. Ejecutar una sola vez.
+    """
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT username, password FROM users WHERE active = TRUE")
+    users = cur.fetchall()
+    for u in users:
+        plain = u["password"]
+        hashed = ph.hash(plain)
+        cur.execute(
+            "UPDATE users SET password = %s WHERE username = %s",
+            (hashed, u["username"])
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"Migrados {len(users)} usuarios.")
+
+
 # ─── Entrada principal ────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Esto genera un certificado temporario auto‑firmado para HTTPS
-    app.run(
-      debug=False,
-      host="0.0.0.0",
-      port=5000,
-      ssl_context="adhoc"
-    )
+    if os.getenv("MIGRATE") == "1":
+        migrate_passwords()
+    else:
+        app.run(
+            debug=False,
+            host="0.0.0.0",
+            port=5000,
+            ssl_context="adhoc"
+        )
 
