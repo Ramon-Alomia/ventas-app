@@ -6,6 +6,7 @@ from flask_talisman import Talisman
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
 from datetime import timedelta
+from flask_argon2 import Argon2
 
 # ─── Configuración de Flask ────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -16,6 +17,13 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,    # JavaScript no puede leer la cookie
     SESSION_COOKIE_SAMESITE='Lax'    # Protege contra CSRF en algunos casos
 )
+
+argon2 = Argon2(app)
+# Generar hash
+pw_hash = argon2.generate_password_hash(pw_plain)
+# Verificar
+if argon2.check_password_hash(stored_hash, pw_plain):
+    # OK
 
 # ─── Duración de sesión ───────────────────────────────────────────────────────
 # Sesión permanente para que Flask use el lifetime definido
@@ -189,7 +197,7 @@ def submit():
     auth_resp = requests.post(
         f"{SERVICE_LAYER_URL}/Login",
         json=auth_payload,
-        verify=False
+        verify="certs/sl-cert.crt"
     )
     if auth_resp.status_code != 200:
         flash("Error al autenticar en Service Layer", "error")
@@ -205,7 +213,7 @@ def submit():
         json=order,
         cookies=cookies,
         headers=headers,
-        verify=False
+        verify="certs/sl-cert.crt"
     )
 
     if resp.status_code in (200, 201):
