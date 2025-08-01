@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 3) Copia TODO el código de la app, incluida la carpeta certs/
 COPY . .
+# ─── DEBUG: listar contenidos de /app/certs para confirmar que el fullchain está ahí ───
+RUN ls -R /app/certs
 
 # 4) Expone puerto y define comando de arranque
 EXPOSE 5000
