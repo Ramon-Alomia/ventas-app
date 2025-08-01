@@ -276,7 +276,7 @@ def history():
     cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
-# Logout\}@app.route("/logout")
+@app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for('login'))
