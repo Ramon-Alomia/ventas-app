@@ -40,7 +40,8 @@ ph = PasswordHasher(
     type=Type.ID
 )
 
-# Inicialización de Flask\app = Flask(__name__)
+# Inicialización de Flask
+app = Flask(__name__)
 # Configuración de cookies seguras
 app.config.update(
     SESSION_COOKIE_SECURE=True,
@@ -288,4 +289,3 @@ if __name__ == "__main__":
             port=int(os.getenv('PORT', 5000)),
             ssl_context='adhoc'
         )
-
