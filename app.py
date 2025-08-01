@@ -227,7 +227,7 @@ def submit():
     auth_resp = requests.post(
         f"{SERVICE_LAYER_URL}/Login",
         json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD},
-        verify='certs/sl-cert.crt'
+        verify='certs/sl-cert-fullchain.crt'
     )
     if auth_resp.status_code != 200:
         flash('Error al autenticar en Service Layer', 'error')
@@ -241,7 +241,7 @@ def submit():
         json=order,
         cookies=cookies,
         headers=headers,
-        verify='certs/sl-cert.crt'
+        verify='certs/sl-cert-fullchain.crt'
     )
     if resp.status_code in (200, 201):
         data     = resp.json()
