@@ -48,7 +48,9 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax'
 )
-app.permanent_session_lifetime = timedelta(minutes=30)
+# Se define duración de sesión permanente
+tmp = timedelta(minutes=30)
+app.permanent_session_lifetime = tmp
 
 # Políticas de seguridad CSP y HSTS
 csp = {
@@ -116,12 +118,12 @@ def login():
         row = cur.fetchone()
         if row:
             try:
-                ph.verify(row[1], pwd)
+                ph.verify(row['hashed'], pwd)
             except (InvalidHashError, VerifyMismatchError):
                 error = "Credenciales inválidas."
             else:
-                # Se actualiza hash si es necesario
-                if ph.check_needs_rehash(row[1]):
+                # Verificación y rehash si cambian parámetros
+                if ph.check_needs_rehash(row['hashed']):
                     new_hash = ph.hash(pwd)
                     cur.execute(
                         "UPDATE users SET password=%s WHERE username=%s",
@@ -130,15 +132,16 @@ def login():
                     conn.commit()
                 # Se inicia sesión
                 session.permanent    = True
-                session["username"] = row[0]
-                session["role"]     = row[2]
+                session["username"] = row['username']
+                session["role"]     = row['role']
                 # Se cargan almacenes asociados
                 cur.execute(
                     "SELECT whscode FROM user_warehouses WHERE username=%s",
                     (user,)
                 )
                 whs = cur.fetchall()
-                session["warehouses"] = [w[0] for w in whs]
+                # Se define lista de códigos
+                session["warehouses"] = [w['whscode'] for w in whs]
                 cur.close(); conn.close()
                 return redirect(url_for("dashboard"))
         else:
@@ -146,121 +149,126 @@ def login():
         cur.close(); conn.close()
     return render_template("login.html", error=error)
 
-# Ruta del dashboard muestra items
+# Ruta de dashboard
 @app.route("/dashboard")
 def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
-    conn = get_db_connection(); cur = conn.cursor()
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    # Se obtienen ítems
     cur.execute("SELECT itemcode, description FROM items_map")
     items = cur.fetchall()
     cur.close(); conn.close()
-    return render_template("dashboard.html", username=session['username'], items=items)
+    return render_template(
+        "dashboard.html", username=session['username'], items=items
+    )
 
-# Ruta para enviar orden a SAP
+# Envío de órdenes a SAP
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
         return redirect(url_for('login'))
     date = request.form.get('date')
     if not date:
-        flash('Por favor selecciona una fecha.', 'error')
+        flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
-    # Se procesan líneas de orden
-    codes = request.form.getlist('item_code')
-    qtys  = request.form.getlist('quantity')
+    # Construcción de líneas de orden
     lines = []
-    for code, q in zip(codes, qtys):
+    for code, qty in zip(
+        request.form.getlist('item_code'),
+        request.form.getlist('quantity')
+    ):
         try:
-            qty = int(q)
+            q = int(qty)
         except ValueError:
-            qty = 0
-        if qty > 0:
+            q = 0
+        if q > 0:
             lines.append({
-                'ItemCode': code,
-                'Quantity': qty,
+                'ItemCode':      code,
+                'Quantity':      q,
                 'WarehouseCode': session['warehouses'][0]
             })
     order = {
-        'CardCode': session.get('cardcode'),
-        'DocDate': date,
-        'DocDueDate': date,
+        'CardCode':      session.get('cardcode'),
+        'DocDate':       date,
+        'DocDueDate':    date,
         'DocumentLines': lines
     }
-    # Se realiza login en Service Layer usando solo sl-cert.crt
-    cert_path = os.path.join(BASE_DIR, 'certs', 'sl-cert.crt')
     try:
-        auth_resp = requests.post(
+        # Autenticación Service Layer
+        auth_payload = {
+            'CompanyDB': COMPANY_DB,
+            'UserName':  SL_USER,
+            'Password':  SL_PASSWORD
+        }
+        auth = requests.post(
             f"{SERVICE_LAYER_URL}/Login",
-            json={"CompanyDB": COMPANY_DB, "UserName": SL_USER, "Password": SL_PASSWORD},
-            verify=cert_path
+            json=auth_payload,
+            verify=os.path.join(BASE_DIR, 'certs', 'sl-cert-fullchain.crt')
         )
-        auth_resp.raise_for_status()
-    except SSLError:
-        flash('No se pudo verificar el certificado SSL con SAP.', 'error')
-        return redirect(url_for('dashboard'))
-    except RequestException:
-        flash('Error de conexión con SAP.', 'error')
-        return redirect(url_for('dashboard'))
-    session_id = auth_resp.json().get('SessionId')
-    cookies    = {'B1SESSION': session_id}
-    headers    = {'Prefer': 'return=representation'}
-    # Se envía orden
-    try:
+        auth.raise_for_status()
+        session_id = auth.json().get('SessionId')
+        cookies    = {'B1SESSION': session_id}
+        headers    = {'Prefer': 'return=representation'}
         resp = requests.post(
             f"{SERVICE_LAYER_URL}/Orders",
             json=order,
             cookies=cookies,
             headers=headers,
-            verify=cert_path
+            verify=os.path.join(BASE_DIR, 'certs', 'sl-cert-fullchain.crt')
         )
         resp.raise_for_status()
     except SSLError:
         flash('No se pudo verificar el certificado SSL con SAP.', 'error')
         return redirect(url_for('dashboard'))
-    except RequestException:
-        flash('Error enviando la orden a SAP.', 'error')
+    except RequestException as e:
+        flash(f'Error conectando con SAP: {e}', 'error')
         return redirect(url_for('dashboard'))
-    data = resp.json()
-    # Se graba orden en BD
-    conn = get_db_connection(); cur = conn.cursor()
+    # Guardado en historial
+    data     = resp.json()
+    docnum   = data.get('DocNum')
+    docentry = data.get('DocEntry')
+    conn = get_db_connection()
+    cur  = conn.cursor()
     cur.execute(
-        "INSERT INTO recorded_orders"
-        " (timestamp, username, whscode, cardcode, docentry, docnum)"
-        " VALUES(NOW(), %s, %s, %s, %s, %s)",
+        """
+        INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
+        VALUES (NOW(), %s, %s, %s, %s, %s)
+        """,
         (
             session['username'],
             session['warehouses'][0],
             session.get('cardcode'),
-            data.get('DocEntry'),
-            data.get('DocNum')
+            docentry, docnum
         )
     )
     conn.commit(); cur.close(); conn.close()
-    return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
+    return render_template('result.html', success=True, docnum=docnum, docentry=docentry)
 
-# Ruta de histórico de órdenes
+# Historial de órdenes
 @app.route("/history")
 def history():
     if 'username' not in session:
         return redirect(url_for('login'))
-    conn = get_db_connection(); cur = conn.cursor()
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    # Si es manager, se filtra por varios almacenes
     if session.get('role') == 'manager':
         whs = session.get('warehouses', [])
         if whs:
             cur.execute(
                 "SELECT timestamp, cardcode, whscode, docnum"
-                " FROM recorded_orders"
-                " WHERE whscode = ANY(%s)"
+                " FROM recorded_orders WHERE whscode = ANY(%s)"
                 " ORDER BY timestamp DESC LIMIT 50", (whs,)
             )
         else:
             rows = []
     else:
+        # Usuarios normales ven solo su propio historial
         cur.execute(
             "SELECT timestamp, cardcode, whscode, docnum"
-            " FROM recorded_orders"
-            " WHERE username = %s"
+            " FROM recorded_orders WHERE username=%s"
             " ORDER BY timestamp DESC LIMIT 50", (session['username'],)
         )
     if cur.statusmessage.startswith('SELECT'):
@@ -268,25 +276,27 @@ def history():
     cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
-# Ruta de logout limpia sesión
-@app.route("/logout")
+# Logout\}@app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# Función para migrar contraseñas a Argon2id
+# Migración de contraseñas de texto plano a Argon2id
 def migrate_passwords():
-    conn = get_db_connection(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT username, password FROM users WHERE active = TRUE")
-    users = cur.fetchall(); count = 0
+    conn = get_db_connection()
+    cur  = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT username, password FROM users WHERE active=TRUE")
+    users = cur.fetchall()
     for u in users:
-        new_hash = ph.hash(u['password'])
-        cur.execute("UPDATE users SET password = %s WHERE username = %s",
-                    (new_hash, u['username']))
-        count += 1
+        new_h = ph.hash(u['password'])
+        cur.execute(
+            "UPDATE users SET password=%s WHERE username=%s",
+            (new_h, u['username'])
+        )
     conn.commit(); cur.close(); conn.close()
-    print(f"Migrados {count} usuarios.")
+    print(f"Migrados {len(users)} usuarios.")
 
+# Entrada principal
 if __name__ == "__main__":
     if os.getenv('MIGRATE') == '1':
         migrate_passwords()
@@ -294,6 +304,6 @@ if __name__ == "__main__":
         app.run(
             debug=False,
             host='0.0.0.0',
-            port=int(os.getenv('PORT', 5000))
+            port=int(os.getenv('PORT', 5000)),
+            ssl_context='adhoc'
         )
-
