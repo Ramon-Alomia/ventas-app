@@ -1,4 +1,6 @@
 import os
+# Se define ruta base del proyecto para referencias absolutas de archivos
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 import requests
 import psycopg2
 from functools import wraps
@@ -124,15 +126,14 @@ def login():
                 # Verificación de hash Argon2 existente
                 ph.verify(row["hashed"], pwd)
             except VerifyMismatchError:
-                # Se indica error si la contraseña no coincide con el hash
+                # Se indica error si la contraseña no coincide
                 error = "Credenciales inválidas."
             except InvalidHashError:
-                # Se re-hashea en caso de contraseña en claro en DB
+                # Se re-hashea en caso de texto plano
                 if pwd == row["hashed"]:
                     new_hash = ph.hash(pwd)
                     conn2 = get_db_connection()
                     cur2  = conn2.cursor()
-                    # Se actualiza el hash en la base de datos
                     cur2.execute(
                         "UPDATE users SET password = %s WHERE username = %s",
                         (new_hash, user)
@@ -143,7 +144,7 @@ def login():
                 else:
                     error = "Credenciales inválidas."
             else:
-                # Verificación de necesidad de re-hasheo por nuevos parámetros
+                # Verificación de necesidad de re-hasheo
                 if ph.check_needs_rehash(row["hashed"]):
                     new_hash = ph.hash(pwd)
                     conn2 = get_db_connection()
@@ -155,7 +156,7 @@ def login():
                     conn2.commit()
                     cur2.close()
                     conn2.close()
-            # Si no hubo error, se inicia sesión y se cargan almacenes
+            # Si no hubo error, iniciar sesión
             if not error:
                 session.permanent    = True
                 session["username"] = row["username"]
@@ -166,23 +167,20 @@ def login():
                 )
                 wh_rows = cur.fetchall()
                 # Se almacena lista de almacenes en sesión
-                session["warehouses"] = [w['whscode'] for w in wh_rows]  # Se almacena lista de almacenes en sesión
+                session["warehouses"] = [w['whscode'] for w in wh_rows]
                 cur.close()
                 conn.close()
-                # Se redirige al dashboard
                 return redirect(url_for("dashboard"))
         else:
             error = "Credenciales inválidas."
         cur.close()
         conn.close()
-    # Se renderiza el formulario de login con el posible mensaje de error
     return render_template("login.html", error=error)
 
 # ─── Vista principal donde se carga catálogo de items ────────────────────
 @app.route("/dashboard")
 def dashboard():
     if 'username' not in session:
-        # Se verifica sesión activa antes de mostrar dashboard
         return redirect(url_for('login'))
     conn = get_db_connection()
     cur  = conn.cursor()
@@ -190,7 +188,6 @@ def dashboard():
     items = cur.fetchall()
     cur.close()
     conn.close()
-    # Se renderiza dashboard con usuario e ítems
     return render_template("dashboard.html", username=session['username'], items=items)
 
 # ─── Ruta para envío de órdenes y registro en PostgreSQL ────────────────
@@ -198,11 +195,12 @@ def dashboard():
 def submit():
     if 'username' not in session:
         return redirect(url_for('login'))
+
     date = request.form.get('date')
     if not date:
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
-    # Se construyen líneas de orden desde el formulario
+
     codes = request.form.getlist('item_code')
     qtys  = request.form.getlist('quantity')
     lines = []
@@ -215,7 +213,7 @@ def submit():
             lines.append({
                 'ItemCode':      code,
                 'Quantity':      qty,
-                'WarehouseCode': session['warehouses'][0]  # Se usa el primer almacén asignado
+                'WarehouseCode': session['warehouses'][0]
             })
     order = {
         'CardCode':      session.get('cardcode'),
@@ -223,47 +221,59 @@ def submit():
         'DocDueDate':    date,
         'DocumentLines': lines
     }
-    # Autenticación en Service Layer de SAP
-    auth_resp = requests.post(
-        f"{SERVICE_LAYER_URL}/Login",
-        json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD},
-        verify='certs/sl-cert-fullchain.crt'
-    )
-    if auth_resp.status_code != 200:
-        flash('Error al autenticar en Service Layer', 'error')
+
+    # Autenticación en Service Layer de SAP (usando CA system bundle)
+    try:
+        auth_resp = requests.post(
+            f"{SERVICE_LAYER_URL}/Login",
+            json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD}
+        )
+        auth_resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        flash(f'Error conectando con Service Layer: {e}', 'error')
         return redirect(url_for('dashboard'))
+
     session_id = auth_resp.json().get('SessionId')
     cookies    = {'B1SESSION': session_id}
     headers    = {'Prefer': 'return=representation'}
-    # Envío de la orden a SAP
-    resp = requests.post(
-        f"{SERVICE_LAYER_URL}/Orders",
-        json=order,
-        cookies=cookies,
-        headers=headers,
-        verify='certs/sl-cert-fullchain.crt'
-    )
-    if resp.status_code in (200, 201):
-        data     = resp.json()
-        docnum   = data.get('DocNum')
-        docentry = data.get('DocEntry')
-        conn = get_db_connection()
-        cur  = conn.cursor()
-        # Se registra orden en tabla recorded_orders
-        cur.execute(
-            """
-            INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
-            VALUES (NOW(), %s, %s, %s, %s, %s)
-            """,
-            (session['username'], session['warehouses'][0], session.get('cardcode'), docentry, docnum)
+
+    # Envío de la orden a SAP (usando CA system bundle)
+    try:
+        resp = requests.post(
+            f"{SERVICE_LAYER_URL}/Orders",
+            json=order,
+            cookies=cookies,
+            headers=headers
         )
-        conn.commit()
-        cur.close()
-        conn.close()
-        # Se renderiza página de resultado exitoso
-        return render_template('result.html', success=True, docnum=docnum, docentry=docentry)
-    # Se renderiza página de error si falla el envío
-    return render_template('result.html', success=False, error=resp.text)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        flash(f'Error enviando la orden: {e}', 'error')
+        return render_template('result.html', success=False, error=str(e))
+
+    data     = resp.json()
+    docnum   = data.get('DocNum')
+    docentry = data.get('DocEntry')
+
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
+        VALUES (NOW(), %s, %s, %s, %s, %s)
+        """,
+        (
+            session['username'],
+            session['warehouses'][0],
+            session.get('cardcode'),
+            docentry,
+            docnum
+        )
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return render_template('result.html', success=True, docnum=docnum, docentry=docentry)
 
 # ─── Histórico: filtro según rol y almacenes asignados ──────────────────────
 @app.route("/history")
@@ -272,7 +282,6 @@ def history():
         return redirect(url_for("login"))
     conn = get_db_connection()
     cur  = conn.cursor()
-    # Se filtra por almacenes si el rol es manager
     if session.get("role") == "manager":
         warehouses = session.get("warehouses", [])
         if warehouses:
@@ -289,7 +298,6 @@ def history():
         else:
             rows = []
     else:
-        # Se filtra por usuario si no es manager
         cur.execute(
             """
             SELECT timestamp, cardcode, whscode, docnum
@@ -300,18 +308,15 @@ def history():
             """,
             (session["username"],)
         )
-    # Se obtienen filas si hubo SELECT
     if cur.statusmessage.startswith("SELECT"):
         rows = cur.fetchall()
     cur.close()
     conn.close()
-    # Se renderiza la vista de histórico con las filas filtradas
     return render_template("history.html", rows=rows)
 
 # ─── Cierre de sesión y limpieza de datos ──────────────────────────────────
 @app.route("/logout")
 def logout():
-    # Se limpia la sesión por completo
     session.clear()
     return redirect(url_for('login'))
 
@@ -319,12 +324,10 @@ def logout():
 def migrate_passwords():
     conn = get_db_connection()
     cur  = conn.cursor(cursor_factory=RealDictCursor)
-    # Se obtienen todos los usuarios activos con contraseña en claro
     cur.execute("SELECT username, password FROM users WHERE active = TRUE")
     users = cur.fetchall()
     count = 0
     for u in users:
-        # Se genera nuevo hash y se actualiza el registro
         new_hash = ph.hash(u['password'])
         cur.execute(
             "UPDATE users SET password = %s WHERE username = %s",
@@ -334,16 +337,13 @@ def migrate_passwords():
     conn.commit()
     cur.close()
     conn.close()
-    # Se imprime cantidad de usuarios migrados
     print(f"Migrados {count} usuarios.")
 
 # ─── Entrada principal: decidir migrar o arrancar servidor Flask ───────────
 if __name__ == "__main__":
     if os.getenv('MIGRATE') == '1':
-        # Se ejecuta migración de contraseñas y se termina el proceso
         migrate_passwords()
     else:
-        # Se inicia servidor Flask con HTTPS adhoc para desarrollo
         app.run(
             debug=False,
             host='0.0.0.0',
