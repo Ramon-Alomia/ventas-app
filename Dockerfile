@@ -1,21 +1,16 @@
 FROM python:3.11-slim
-
-# 1) Instala certificados de sistema para validar CAs públicas
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 2) Copia requirements e instala dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3) Copia TODO el código de la app, incluida la carpeta certs/
 COPY . .
-# ─── DEBUG: listar contenidos de /app/certs para confirmar que el fullchain está ahí ───
+# DEBUG: listar y verificar cadena de certificados
 RUN ls -R /app/certs
+RUN head -n 20 /app/certs/sl-cert-fullchain.crt
+RUN tail -n 20 /app/certs/sl-cert-fullchain.crt
 
-# 4) Expone puerto y define comando de arranque
 EXPOSE 5000
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+CMD ["gunicorn","--bind","0.0.0.0:5000","app:app"]
