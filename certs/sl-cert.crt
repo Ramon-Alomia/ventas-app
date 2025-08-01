@@ -1,3 +1,10 @@
+CONNECTED(000001FC)
+---
+Certificate chain
+ 0 s:CN=*.virtualdv.cloud
+   i:C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., OU=http://certs.godaddy.com/repository/, CN=Go Daddy Secure Certificate Authority - G2
+   a:PKEY: RSA, 2048 (bit); sigalg: sha256WithRSAEncryption
+   v:NotBefore: Jan 24 20:27:45 2025 GMT; NotAfter: Jan 24 20:24:11 2026 GMT
 -----BEGIN CERTIFICATE-----
 MIIGmzCCBYOgAwIBAgIJAOJmY0m156z7MA0GCSqGSIb3DQEBCwUAMIG0MQswCQYD
 VQQGEwJVUzEQMA4GA1UECBMHQXJpem9uYTETMBEGA1UEBxMKU2NvdHRzZGFsZTEa
@@ -36,3 +43,96 @@ G9cBi9Rkl5UEwpXFglil3W1zXHX9Nf8nJzwvWerQgJ+gyUv8CKS0kYKrJBqzdpap
 fj+oNOcfSTFYzVJTDKyxEVn+r9H93SOrRNrnwHyMovHPHNJoELqDm01iRqKQ9fB6
 FLbGldoBYo1uYy5Xp4pf
 -----END CERTIFICATE-----
+---
+Server certificate
+subject=CN=*.virtualdv.cloud
+issuer=C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., OU=http://certs.godaddy.com/repository/, CN=Go Daddy Secure Certificate Authority - G2
+---
+No client certificate CA names sent
+Peer signing digest: SHA256
+Peer signature type: rsa_pss_rsae_sha256
+Peer Temp Key: X25519, 253 bits
+---
+SSL handshake has read 2251 bytes and written 1639 bytes
+Verification error: unable to verify the first certificate
+---
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+Protocol: TLSv1.3
+Server public key is 2048 bit
+This TLS version forbids renegotiation.
+Compression: NONE
+Expansion: NONE
+No ALPN negotiated
+Early data was not sent
+Verify return code: 21 (unable to verify the first certificate)
+---
+---
+Post-Handshake New Session Ticket arrived:
+SSL-Session:
+    Protocol  : TLSv1.3
+    Cipher    : TLS_AES_256_GCM_SHA384
+    Session-ID: 38B7245BB42556B7C7F08175A6918888AB75392CA61DAA463D13DEB498C4ACF2
+    Session-ID-ctx: 
+    Resumption PSK: ADDD66B377439F09B7264010875A0ECD80453FA6E46DA7F02D1738374669C1587572C02267008B9A8158AEC94719DE6B
+    PSK identity: None
+    PSK identity hint: None
+    SRP username: None
+    TLS session ticket lifetime hint: 300 (seconds)
+    TLS session ticket:
+    0000 - 53 ac 4c 05 07 4f d4 d0-c4 30 4f 31 ba ba fe d3   S.L..O...0O1....
+    0010 - 0b c8 b7 50 41 15 e2 02-0f 61 bf 85 b3 b6 30 8e   ...PA....a....0.
+    0020 - ed f2 5e 97 09 d1 40 42-e1 7b ed 9e b1 92 cf 4f   ..^...@B.{.....O
+    0030 - 60 a7 a4 86 7e a9 4e 46-2e ed af 04 e8 cf 1b 34   `...~.NF.......4
+    0040 - 7a 8b c9 7c 67 af 1b 15-7c b1 d9 f8 70 0d cf db   z..|g...|...p...
+    0050 - 4f 3f 03 73 98 98 bd 3d-18 b4 18 86 1a 7b 22 d1   O?.s...=.....{".
+    0060 - 6b f5 22 5c 66 75 1c 96-3d 78 a9 2b ac 7d 1b 82   k."\fu..=x.+.}..
+    0070 - e0 d1 83 73 80 9d e1 a7-30 7f 4c 6c f7 ff 9b 90   ...s....0.Ll....
+    0080 - 09 58 ff 8a 9c 36 8e d8-36 55 da eb 19 15 a2 1b   .X...6..6U......
+    0090 - d2 dd 2f 14 ee 7e e3 f9-2d 73 c8 58 81 c7 69 0f   ../..~..-s.X..i.
+    00a0 - ef ec 2c 0d 70 fd cb a2-76 dc b8 6c c6 9f 68 df   ..,.p...v..l..h.
+    00b0 - b5 09 bd dc 56 44 a7 65-9b 1a 1e af 49 84 65 5b   ....VD.e....I.e[
+    00c0 - ed 2b cf 23 d4 31 7c f7-df a2 59 d9 5f ef 82 78   .+.#.1|...Y._..x
+    00d0 - 70 c4 6a 6f e8 a9 a3 22-c0 90 65 4c 1b c7 6e 1c   p.jo..."..eL..n.
+
+    Start Time: 1754077160
+    Timeout   : 7200 (sec)
+    Verify return code: 21 (unable to verify the first certificate)
+    Extended master secret: no
+    Max Early Data: 0
+---
+read R BLOCK
+---
+Post-Handshake New Session Ticket arrived:
+SSL-Session:
+    Protocol  : TLSv1.3
+    Cipher    : TLS_AES_256_GCM_SHA384
+    Session-ID: FE3F52393DCFF3752DE02FA642FFDEB7FBD258E1854CCFFB9F6A8EEFDB577668
+    Session-ID-ctx: 
+    Resumption PSK: 6DFE8BC3C71FB1FA7F6A64E365CEFF308B87D30FE2E0B31B00075E4E1F77ED1982596531EB437BD37F4C8C2B87B0697D
+    PSK identity: None
+    PSK identity hint: None
+    SRP username: None
+    TLS session ticket lifetime hint: 300 (seconds)
+    TLS session ticket:
+    0000 - 53 ac 4c 05 07 4f d4 d0-c4 30 4f 31 ba ba fe d3   S.L..O...0O1....
+    0010 - 43 c7 f4 eb 0b 9d b3 b0-96 31 3d ab 5e fa ca 8e   C........1=.^...
+    0020 - 1b f5 d2 93 ec 9b ef 69-81 86 96 86 6f 0e fd 3e   .......i....o..>
+    0030 - cc 11 dd 6e eb fd 62 51-ca 69 3b a4 47 2c 7c e7   ...n..bQ.i;.G,|.
+    0040 - 67 13 7d 70 0b cd 75 5c-b3 b1 08 16 6e d2 ce 76   g.}p..u\....n..v
+    0050 - 80 5e 28 07 7b 0e 44 ff-e7 ac 87 c1 b0 63 36 fe   .^(.{.D......c6.
+    0060 - 3d 17 34 a8 97 37 3f 4b-27 7b 2f 16 c8 82 36 e2   =.4..7?K'{/...6.
+    0070 - a4 8f ee 1e 88 1a 25 e9-1f fa 4f 52 ea a1 76 99   ......%...OR..v.
+    0080 - 58 16 71 7e d9 88 d9 03-d1 f5 ae 6a ca a0 02 56   X.q~.......j...V
+    0090 - e2 53 e1 f1 ce 76 96 de-a4 dc 89 ce fd b7 67 0c   .S...v........g.
+    00a0 - 24 75 9b b0 9d 79 33 32-24 1a 90 c8 9a 54 81 fb   $u...y32$....T..
+    00b0 - 77 38 bc d3 cd c1 ce 4b-f1 f0 c3 c3 98 e5 f7 da   w8.....K........
+    00c0 - 3f a6 bf 23 2e 99 ae 81-4b 8d c1 87 82 ad a8 20   ?..#....K...... 
+    00d0 - ad a5 19 4b ea 1c 75 2f-c8 b7 77 3d 50 e5 dc b5   ...K..u/..w=P...
+
+    Start Time: 1754077160
+    Timeout   : 7200 (sec)
+    Verify return code: 21 (unable to verify the first certificate)
+    Extended master secret: no
+    Max Early Data: 0
+---
+read R BLOCK
