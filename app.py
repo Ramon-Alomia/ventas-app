@@ -1,4 +1,3 @@
-
 import os
 import requests
 import psycopg2
@@ -167,7 +166,7 @@ def login():
                 )
                 wh_rows = cur.fetchall()
                 # Se almacena lista de almacenes en sesión
-                session["warehouses"] = [w[0] for w in wh_rows]
+                session["warehouses"] = [w['whscode'] for w in wh_rows]  # Se almacena lista de almacenes en sesión
                 cur.close()
                 conn.close()
                 # Se redirige al dashboard
