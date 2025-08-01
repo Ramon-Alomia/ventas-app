@@ -1,12 +1,24 @@
 import os
 import requests
 import psycopg2
+from functools import wraps
+from flask import abort
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, session, url_for, flash
 from datetime import timedelta
 from flask_talisman import Talisman
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError
+
+def roles_required(*permitted_roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if session.get("role") not in permitted_roles:
+                return abort(403)  # o render_template("403.html")
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
 
 # ─── Configuración Argon2id ─────────────────────────────────────────────────
 ph = PasswordHasher(
@@ -46,6 +58,16 @@ Talisman(
     strict_transport_security_max_age=31536000
 )
 
+def roles_required(*permitted_roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if session.get("role") not in permitted_roles:
+                return abort(403)  # o render_template("403.html")
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
 @app.after_request
 def apply_secure_headers(response):
     response.headers['X-Frame-Options'] = 'DENY'
@@ -84,49 +106,50 @@ def index():
 def login():
     error = None
     if request.method == "POST":
-        user = request.form.get("username")
-        pwd  = request.form.get("password")
+        user = request.form["username"]
+        pwd  = request.form["password"]
 
+        # 1️⃣ Consulta básica con role y hash
         conn = get_db_connection()
         cur  = conn.cursor()
-        cur.execute(
-            """
-            SELECT username, password AS hashed, whscode
+        cur.execute("""
+            SELECT username,
+                   password   AS hashed,
+                   role
               FROM users
              WHERE username = %s
                AND active = TRUE
-            """, (user,)
-        )
+        """, (user,))
         row = cur.fetchone()
-        cur.close()
-        conn.close()
-
+        
         if row:
             try:
-                ph.verify(row['hashed'], pwd)
+                ph.verify(row["hashed"], pwd)
             except VerifyMismatchError:
                 error = "Credenciales inválidas."
             else:
+                # 2️⃣ Iniciar sesión
                 session.permanent = True
-                session['username'] = row['username']
-                session['whscode']  = row['whscode']
+                session["username"] = row["username"]
+                session["role"]     = row["role"]
 
-                # Re-hashea si es necesario
-                if ph.check_needs_rehash(row['hashed']):
-                    new_hash = ph.hash(pwd)
-                    conn2 = get_db_connection()
-                    cur2  = conn2.cursor()
-                    cur2.execute(
-                        "UPDATE users SET password = %s WHERE username = %s",
-                        (new_hash, user)
-                    )
-                    conn2.commit()
-                    cur2.close()
-                    conn2.close()
+                # 3️⃣ Cargar almacenes permitidos
+                cur.execute("""
+                    SELECT whscode
+                      FROM user_warehouses
+                     WHERE username = %s
+                """, (user,))
+                wh_rows = cur.fetchall()
+                # Genera una lista simple de códigos
+                session["warehouses"] = [w["whscode"] for w in wh_rows]
 
-                return redirect(url_for('dashboard'))
+                # 4️⃣ Redirigir al dashboard
+                return redirect(url_for("dashboard"))
         else:
             error = "Credenciales inválidas."
+
+        cur.close()
+        conn.close()
 
     return render_template("login.html", error=error)
 
@@ -234,26 +257,43 @@ def submit():
 
 @app.route("/history")
 def history():
-    if 'username' not in session:
-        return redirect(url_for('login'))
+    if "username" not in session:
+        return redirect(url_for("login"))
 
     conn = get_db_connection()
     cur  = conn.cursor()
-    cur.execute(
-        """
-        SELECT timestamp, cardcode, whscode, docnum
-          FROM recorded_orders
-         WHERE username = %s
-         ORDER BY timestamp DESC
-         LIMIT 50
-        """,
-        (session['username'],)
-    )
-    rows = cur.fetchall()
+
+    # Si es manager, filtrar por los almacenes que cargamos en session
+    if session.get("role") == "manager":
+        warehouses = session.get("warehouses", [])
+        if warehouses:
+            cur.execute("""
+                SELECT timestamp, cardcode, whscode, docnum
+                  FROM recorded_orders
+                 WHERE whscode = ANY(%s)
+                 ORDER BY timestamp DESC
+                 LIMIT 50
+            """, (warehouses,))
+        else:
+            # Si no tiene almacenes asignados, devolvemos vacío
+            rows = []
+    else:
+        # Para usuarios normales o ADC, filtrar por su username
+        cur.execute("""
+            SELECT timestamp, cardcode, whscode, docnum
+              FROM recorded_orders
+             WHERE username = %s
+             ORDER BY timestamp DESC
+             LIMIT 50
+        """, (session["username"],))
+    # Si ejecutamos una consulta, obtenemos los resultados
+    if cur.statusmessage.startswith("SELECT"):
+        rows = cur.fetchall()
+
     cur.close()
     conn.close()
 
-    return render_template('history.html', rows=rows)
+    return render_template("history.html", rows=rows)
 
 @app.route("/logout")
 def logout():
