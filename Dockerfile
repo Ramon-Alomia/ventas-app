@@ -9,6 +9,10 @@ RUN apt-get update \
  && update-ca-certificates --verbose \
  && rm -rf /var/lib/apt/lists/*
 
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # 3. Instala y actualiza certificados del sistema
 RUN apt-get update \
  && apt-get install -y ca-certificates \
