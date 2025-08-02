@@ -1,17 +1,15 @@
-FROM python:3.11-slim
+# 1. Copia y registra tu fullchain en el almacén de CA del sistema
+COPY certs/fullchain.crt /usr/local/share/ca-certificates/sl-fullchain.crt
 
-# ① Instala certificados de sistema para validar CAs públicas
+# 2. Instala y actualiza certificados del sistema
 RUN apt-get update \
  && apt-get install -y ca-certificates \
+ && update-ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# ② Instala dependencias de Python
-COPY requirements.txt .
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-
-# ③ Copia todo el código (incluye /certs/sl-cert-fullchain.crt)
 COPY . .
 
 EXPOSE 5000
