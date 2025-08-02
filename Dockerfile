@@ -1,11 +1,12 @@
-# 1. Imagen base
 FROM python:3.11-slim
 
-# 2. Copia y registra fullchain en el almacén de CA del sistema
+# Copia SOLO la CA intermedia
 COPY certs/intermediate.crt /usr/local/share/ca-certificates/intermediate.crt
+
+# Instala y registra nuevas CAs
 RUN apt-get update \
  && apt-get install -y ca-certificates \
- && update-ca-certificates \
+ && update-ca-certificates --verbose \
  && rm -rf /var/lib/apt/lists/*
 
 # 3. Instala y actualiza certificados del sistema
