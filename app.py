@@ -221,7 +221,7 @@ def submit():
         resp.raise_for_status()
     except SSLError as ssl_err:
         app.logger.error(f"SSL error al conectar con SAP: {ssl_err}", exc_info=True)
-        flash("No se pudo verificar el certificado SSL con SAP.", "error")
+        flash(f"SSL error detallado: {ssl_err}", "error")
         return redirect(url_for('dashboard'))
     except RequestException as e:
         app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
