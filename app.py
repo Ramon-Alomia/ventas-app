@@ -1,7 +1,7 @@
 import os
 from functools import wraps
 from datetime import timedelta
-
+from requests.exceptions import SSLError, RequestException
 import requests
 import psycopg2
 from flask import (
@@ -12,7 +12,7 @@ from psycopg2.extras import RealDictCursor
 from flask_talisman import Talisman
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
-from requests.exceptions import SSLError, RequestException
+
 
 # Se define ruta base para archivos de certificado
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -219,10 +219,12 @@ def submit():
             verify=True
         )
         resp.raise_for_status()
-    except SSLError:
-        flash('No se pudo verificar el certificado SSL con SAP.', 'error')
+    except SSLError as ssl_err:
+        app.logger.error(f"SSL error al conectar con SAP: {ssl_err}", exc_info=True)
+        flash("No se pudo verificar el certificado SSL con SAP.", "error")
         return redirect(url_for('dashboard'))
     except RequestException as e:
+        app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
         flash(f'Error conectando con SAP: {e}', 'error')
         return redirect(url_for('dashboard'))
     # Guardado en historial
