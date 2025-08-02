@@ -205,7 +205,7 @@ def submit():
         auth = requests.post(
             f"{SERVICE_LAYER_URL}/Login",
             json=auth_payload,
-            verify=os.path.join(BASE_DIR, 'certs', 'sl-cert-fullchain.crt')
+            verify=True
         )
         auth.raise_for_status()
         session_id = auth.json().get('SessionId')
@@ -216,7 +216,7 @@ def submit():
             json=order,
             cookies=cookies,
             headers=headers,
-            verify=os.path.join(BASE_DIR, 'certs', 'sl-cert-fullchain.crt')
+            verify=True
         )
         resp.raise_for_status()
     except SSLError:
