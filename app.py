@@ -84,7 +84,9 @@ if not app.secret_key:
 SERVICE_LAYER_URL = os.getenv(
     "SERVICE_LAYER_URL",
     "https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1"
-)
+    
+).rstrip("/")   # ⚠️ elimina cualquier '/' sobrante al final
+
 COMPANY_DB  = os.getenv("COMPANY_DB", "PRDBERSA")
 SL_USER     = os.getenv("SL_USER", "brsuser02")
 SL_PASSWORD = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
