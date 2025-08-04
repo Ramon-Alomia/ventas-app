@@ -19,8 +19,10 @@ services:
       SERVICE_LAYER_URL: https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1
       COMPANY_DB: PRDBERSA
       SL_USER: brsuser02
-      SL_PASSWORD: "$PniBvQ7rBa6!A"
-      # Conexión a la base de datos Neon (PostgreSQL)
+      # Si tu contraseña contiene un signo $, usa comillas simples para evitar interpretaciones
+      SL_PASSWORD: '$PniBvQ7rBa6!A'
+      # URL de la base de datos Neon (PostgreSQL)
+      # Reemplaza los placeholders con tus credenciales reales
       DATABASE_URL: postgresql://<USUARIO>:<PASSWORD>@<HOST>:<PUERTO>/<DB_NAME>
       SECRET_KEY: <TU_SECRET_KEY>
     networks:
@@ -28,18 +30,8 @@ services:
     command: >
       gunicorn --bind 0.0.0.0:5000 app:app
 
-  # Proxy reverso (opcional) para manejar TLS, rutas, etc.
-  proxy:
-    image: nginx:alpine
-    container_name: proxy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - appnet
+# El proxy reverso ha sido eliminado porque no se dispone de nginx.conf
+# Si más adelante quieres añadir TLS o balanceo, podrías usar un contenedor nginx
 
 networks:
   appnet:
