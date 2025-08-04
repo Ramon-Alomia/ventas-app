@@ -21,7 +21,7 @@
 
     body {
       font-family: var(--font-primary);
-      background: url("./fondo.png");
+      background: url("{{ url_for('static', filename='images/fondo.png') }}") no-repeat center/cover;
       background-size: 100vw 100vh;
       background-repeat: no-repeat;
       background-attachment: fixed;

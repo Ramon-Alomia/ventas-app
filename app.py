@@ -53,10 +53,12 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Políticas de seguridad CSP y HSTS
 csp = {
-    'default-src': ["'self'"],
-    'script-src':  ["'self'", 'cdnjs.cloudflare.com'],
-    'style-src':   ["'self'", 'cdnjs.cloudflare.com'],
-    'img-src':     ["'self'", 'data:' ]
+  'default-src': ["'self'"],
+  'script-src':  ["'self'", 'cdnjs.cloudflare.com'],
+  # permitimos inline styles y Google Fonts
+  'style-src':   ["'self'", "'unsafe-inline'", 'cdnjs.cloudflare.com', 'fonts.googleapis.com'],
+  'font-src':    ["'self'", 'fonts.gstatic.com'],
+  'img-src':     ["'self'", 'data:']
 }
 Talisman(
     app,
