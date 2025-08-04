@@ -174,7 +174,7 @@ def submit():
         sl.cookies.clear(); sl.cookies.set('B1SESSION', sid, path='/')
         if route: sl.cookies.set('ROUTEID', route, path='/')
         meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata"); app.logger.debug(f"GET $metadata: {meta_get.status_code}")
-        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders"); app.logger.debug(f"GET Orders: {orders_get.status_code}")
+        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders"); app.logger.debug(f"GET Orders: {orders_get.status_code} body: {orders_get.text[:300]}")
         sl.headers.update({'Prefer': 'return=representation'})
         resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order); resp.raise_for_status()
     except SSLError as e:
@@ -224,4 +224,3 @@ if __name__ == "__main__":
         migrate_passwords()
     else:
         app.run(debug=False, host='0.0.0.0', port=int(os.getenv('PORT', 5000)), ssl_context='adhoc')
-
