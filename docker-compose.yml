@@ -21,8 +21,8 @@ services:
       SL_USER: brsuser02
       SL_PASSWORD: "$PniBvQ7rBa6!A"
       # Conexión a la base de datos Neon (PostgreSQL)
-      DATABASE_URL: postgresql://neondb_owner:npg_3iMzrgKPE8lu@ep-curly-sun-aedmrs55-pooler.c-2.us-east-2.aws.neon.tech/ventas-db?sslmode=require&channel_binding=require
-      SECRET_KEY: $b0$40~0J=::Xm!0g|
+      DATABASE_URL: postgresql://<USUARIO>:<PASSWORD>@<HOST>:<PUERTO>/<DB_NAME>
+      SECRET_KEY: <TU_SECRET_KEY>
     networks:
       - appnet
     command: >
