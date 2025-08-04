@@ -46,8 +46,7 @@ app.config.update(
     SESSION_COOKIE_SAMESITE='Lax'
 )
 # Duración de sesión permanente
-tmp = timedelta(minutes=30)
-app.permanent_session_lifetime = tmp
+app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Políticas de seguridad CSP y HSTS
 csp = {
@@ -127,6 +126,7 @@ def login():
                 session.permanent    = True
                 session["username"] = row['username']
                 session["role"]     = row['role']
+                # Carga almacenes asociados
                 cur.execute(
                     "SELECT whscode FROM user_warehouses WHERE username=%s",
                     (user,)
@@ -155,7 +155,7 @@ def dashboard():
         items=items
     )
 
-# Envío de órdenes a SAP sin validación estricta de $metadata
+# Envío de órdenes a SAP mejorado con cookies y headers correctos
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -169,8 +169,10 @@ def submit():
         request.form.getlist('item_code'),
         request.form.getlist('quantity')
     ):
-        try: q = int(qty)
-        except ValueError: q = 0
+        try:
+            q = int(qty)
+        except ValueError:
+            q = 0
         if q > 0:
             lines.append({
                 'ItemCode':      code,
@@ -186,7 +188,10 @@ def submit():
     try:
         sl = requests.Session()
         sl.verify = True
-        sl.headers.update({'Content-Type': 'application/json'})
+        sl.headers.update({
+            'Content-Type': 'application/json',
+            'Accept':       'application/json'
+        })
         auth_payload = {
             'CompanyDB': COMPANY_DB,
             'UserName':  SL_USER,
@@ -194,7 +199,12 @@ def submit():
         }
         login_resp = sl.post(f"{SERVICE_LAYER_URL}/Login", json=auth_payload)
         login_resp.raise_for_status()
-        # Omitimos chequeo de $metadata para evitar falsos negativos
+        sid = login_resp.json().get('SessionId')
+        route = login_resp.cookies.get('ROUTEID')
+        sl.cookies.clear()
+        sl.cookies.set('B1SESSION', sid, path='/b1s/v1')
+        if route:
+            sl.cookies.set('ROUTEID', route, path='/')
         sl.headers.update({'Prefer': 'return=representation'})
         resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         resp.raise_for_status()
@@ -206,8 +216,8 @@ def submit():
         app.logger.error(f"Error conectando con SAP: {req_err}", exc_info=True)
         flash(f"Error conectando con SAP: {req_err}", "error")
         return redirect(url_for('dashboard'))
-    data     = resp.json()
-    docnum   = data.get('DocNum')
+    data = resp.json()
+    docnum = data.get('DocNum')
     docentry = data.get('DocEntry')
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
@@ -253,12 +263,13 @@ def history():
     cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
+# Logout de usuarios
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# Migración de contraseñas a Argon2id
+# Migración de contraseñas de texto plano a Argon2id
 def migrate_passwords():
     conn = get_db_connection(); cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT username, password FROM users WHERE active=TRUE")
