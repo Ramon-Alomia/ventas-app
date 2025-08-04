@@ -39,6 +39,10 @@ ph = PasswordHasher(
 
 # Inicialización de Flask
 app = Flask(__name__)
+# Configuración de logging para mostrar DEBUG en los logs
+import logging
+logging.basicConfig(level=logging.DEBUG)
+app.logger.setLevel(logging.DEBUG)
 # Configuración de cookies seguras
 app.config.update(
     SESSION_COOKIE_SECURE=True,
