@@ -1,133 +1,219 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8">
   <title>Portal de Venta Diaria</title>
   <!-- Enlace al CSS estático -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+
+  <style>
+    /* Variables y tipografía */
+    :root {
+      --font-primary: 'Montserrat', sans-serif;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      font-family: var(--font-primary);
+      background: url("./fondo.png");
+      background-size: 100vw 100vh;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      display: flex;
+      flex-direction: column;
+      /* <-- add this line */
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      gap: 1.5rem;
+      min-height: 100vh;
+    }
+
+    /* 3) Caja “card” para el login */
+    .login-box {
+      background: rgba(255, 255, 255, 0.85);
+      padding: 2rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      max-width: 360px;
+      width: 100%;
+    }
+
+    /* 4) Inputs */
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 0.25rem;
+      border: 1px solid #ccc;
+      border-radius: 0.375rem;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #0A2140;
+    }
+
+    /* 5) Botón */
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 1rem;
+      background-color: #0A2140;
+      color: #fff;
+      border: none;
+      border-radius: 0.375rem;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0A2140;
+    }
+
+    /* 6) Responsivo */
+    @media (max-width: 400px) {
+      .login-box {
+        padding: 1rem;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+    }
+  </style>
 </head>
-<body>
-<body>
-  <h1>Bienvenido, {{ username }}</h1>
 
-  <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
-  {% with messages = get_flashed_messages(with_categories=true) %}
+<body>
+
+  <body>
+    <h1></h1>
+    <h1>Bienvenido, {{ username }}</h1>
+
+    <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <ul>
+    <ul>
       {% for category, msg in messages %}
-        <li
-  {% if category=='error' %}
-    style="color:red;"
-  {% else %}
-    style="color:green;"
-  {% endif %}
->
-  {{ msg }}
-</li>
+      <li {% if category=='error' %} style="color:red;" {% else %} style="color:green;" {% endif %}>
+        {{ msg }}
+      </li>
       {% endfor %}
-      </ul>
+    </ul>
     {% endif %}
-  {% endwith %}
+    {% endwith %}
 
-  <p>Registra tus ventas de hoy (varios menús):</p>
+    <p>Registra tus ventas de hoy (varios menús):</p>
 
-  <form action="{{ url_for('submit') }}" method="post" id="orderForm">
-    <!-- Fecha única para toda la orden -->
-    <label>Fecha:<br>
-      <input type="date" name="date" required>
-    </label>
-    <br><br>
+    <form action="{{ url_for('submit') }}" method="post" id="orderForm">
+      <!-- Fecha única para toda la orden -->
+      <label>Fecha:<br>
+        <input type="date" name="date" required>
+      </label>
+      <br><br>
 
-    <table id="lines">
-      <tr>
-        <th>Tipo de comida</th>
-        <th>Cantidad</th>
-        <th>Acción</th>
-      </tr>
-      <tr class="line">
-        <td>
-          <select name="item_code" required>
-            <option value="" disabled selected>Selecciona un menú…</option>
-            {% for item in items %}
+      <table id="lines">
+        <tr>
+          <th>Tipo de comida</th>
+          <th>Cantidad</th>
+          <th>Acción</th>
+        </tr>
+        <tr class="line">
+          <td>
+            <select name="item_code" required>
+              <option value="" disabled selected>Selecciona un menú…</option>
+              {% for item in items %}
               <option value="{{ item['itemcode'] }}">
                 {{ item['description'] }}
               </option>
-            {% endfor %}
-          </select>
-        </td>
-        <td>
-          <input type="number" name="quantity" min="1" required oninvalid="this.setCustomValidity('Introduce una cantidad mayor a cero')" oninput="this.setCustomValidity('')" />
-        </td>
-        <td>
-          <button type="button" class="remove">–</button>
-        </td>
-      </tr>
-    </table>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <input type="number" name="quantity" min="1" required
+              oninvalid="this.setCustomValidity('Introduce una cantidad mayor a cero')"
+              oninput="this.setCustomValidity('')" />
+          </td>
+          <td>
+            <button type="button" class="remove">–</button>
+          </td>
+        </tr>
+      </table>
 
+      <p>
+        <button type="button" id="addLine">Añadir línea +</button>
+      </p>
+      <button type="submit">Enviar a SAP</button>
+    </form>
+
+    <!-- CAMBIO 2: enlazar historial y Cerrar sesión dentro del body -->
     <p>
-      <button type="button" id="addLine">Añadir línea +</button>
+      <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
+      <a href="{{ url_for('logout') }}">Cerrar sesión</a>
     </p>
-    <button type="submit">Enviar a SAP</button>
-  </form>
 
-  <!-- CAMBIO 2: enlazar historial y Cerrar sesión dentro del body -->
-  <p>
-    <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
-    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
-  </p>
+    <script>
+      // CAMBIO 3: capturamos la tabla en una variable para usarla en ambos controladores
+      const table = document.getElementById('lines');
 
-  <script>
-    // CAMBIO 3: capturamos la tabla en una variable para usarla en ambos controladores
-    const table = document.getElementById('lines');
+      // Clona la primera línea para añadir una nueva
+      document.getElementById('addLine').addEventListener('click', () => {
+        const first = table.querySelector('.line');
+        const clone = first.cloneNode(true);
+        clone.querySelector('input[name="quantity"]').value = '';
+        clone.querySelector('select[name="item_code"]').selectedIndex = 0;
+        table.appendChild(clone);
+      });
 
-    // Clona la primera línea para añadir una nueva
-    document.getElementById('addLine').addEventListener('click', () => {
-      const first = table.querySelector('.line');
-      const clone = first.cloneNode(true);
-      clone.querySelector('input[name="quantity"]').value = '';
-      clone.querySelector('select[name="item_code"]').selectedIndex = 0;
-      table.appendChild(clone);
-    });
-
-    // Permite eliminar líneas (dejando al menos una)
-    table.addEventListener('click', e => {
-      if (e.target.classList.contains('remove')) {
-        const rows = table.querySelectorAll('.line');
-        if (rows.length > 1) {
-          e.target.closest('tr').remove();
+      // Permite eliminar líneas (dejando al menos una)
+      table.addEventListener('click', e => {
+        if (e.target.classList.contains('remove')) {
+          const rows = table.querySelectorAll('.line');
+          if (rows.length > 1) {
+            e.target.closest('tr').remove();
+          }
         }
-      }
-    });
-  </script>
+      });
+    </script>
 
 
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const table  = document.getElementById('lines');
-    const addBtn = document.getElementById('addLine');
-    console.log('table:', table, 'addBtn:', addBtn);
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const table = document.getElementById('lines');
+        const addBtn = document.getElementById('addLine');
+        console.log('table:', table, 'addBtn:', addBtn);
 
-    if (!table || !addBtn) {
-      console.error('No se encontró #lines o #addLine en el DOM');
-      return;
-    }
+        if (!table || !addBtn) {
+          console.error('No se encontró #lines o #addLine en el DOM');
+          return;
+        }
 
-    addBtn.addEventListener('click', () => {
-      const first = table.querySelector('.line');
-      console.log('clonando línea:', first);
-      if (!first) {
-        console.error('No se encontró ninguna fila .line para clonar');
-        return;
-      }
-      const clone = first.cloneNode(true);
-      clone.querySelector('input[name="quantity"]').value = '';
-      clone.querySelector('select[name="item_code"]').selectedIndex = 0;
-      table.appendChild(clone);
-    });
-  });
-</script>
+        addBtn.addEventListener('click', () => {
+          const first = table.querySelector('.line');
+          console.log('clonando línea:', first);
+          if (!first) {
+            console.error('No se encontró ninguna fila .line para clonar');
+            return;
+          }
+          const clone = first.cloneNode(true);
+          clone.querySelector('input[name="quantity"]').value = '';
+          clone.querySelector('select[name="item_code"]').selectedIndex = 0;
+          table.appendChild(clone);
+        });
+      });
+    </script>
 
 
- <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-</body>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+  </body>
+
 </html>
