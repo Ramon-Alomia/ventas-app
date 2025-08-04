@@ -1,32 +1,46 @@
+version: '3.8'
+
 services:
+  # Servicio de la aplicación web
   web:
     build: .
     image: portal-venta-diaria
     container_name: portal-venta-diaria
     restart: unless-stopped
-
-    # ① Montamos el código fuente local en /app
+    # Montamos el código fuente en /app
     volumes:
-      - ./:/app                   # <— tu proyecto completo
-      - ./database.db:/app/database.db  # <— tu BD
-
+      - ./:/app
     ports:
       - "5000:5000"
-
-    # ② Entorno de desarrollo para Flask
     environment:
-      - FLASK_ENV=development
-
-    # ③ Arrancamos con gunicorn en modo 'reload'
+      # Flask environment
+      FLASK_ENV: production
+      # Service Layer de SAP B1
+      SERVICE_LAYER_URL: https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1
+      COMPANY_DB: PRDBERSA
+      SL_USER: brsuser02
+      SL_PASSWORD: "$PniBvQ7rBa6!A"
+      # Conexión a la base de datos Neon (PostgreSQL)
+      DATABASE_URL: postgresql://neondb_owner:npg_3iMzrgKPE8lu@ep-curly-sun-aedmrs55-pooler.c-2.us-east-2.aws.neon.tech/ventas-db?sslmode=require&channel_binding=require
+      SECRET_KEY: $b0$40~0J=::Xm!0g|
+    networks:
+      - appnet
     command: >
-      gunicorn 
-      --reload 
-      --bind 0.0.0.0:5000 
-      app:app
+      gunicorn --bind 0.0.0.0:5000 app:app
 
+  # Proxy reverso (opcional) para manejar TLS, rutas, etc.
+  proxy:
+    image: nginx:alpine
+    container_name: proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - appnet
 
-  proxy:
-    # ... (igual que antes)
-
+networks:
+  appnet:
+    driver: bridge
