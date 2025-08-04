@@ -13,7 +13,6 @@ from flask_talisman import Talisman
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 
-
 # Se define ruta base para archivos de certificado
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,9 +21,7 @@ def roles_required(*permitted_roles):
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
-            # Verificación si el rol en sesión está permitido
             if session.get("role") not in permitted_roles:
-                # Se devuelve 403 Forbidden en caso de no tener permiso
                 return abort(403)
             return f(*args, **kwargs)
         return wrapped
@@ -48,9 +45,8 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax'
 )
-# Se define duración de sesión permanente
-tmp = timedelta(minutes=30)
-app.permanent_session_lifetime = tmp
+# Duración de sesión permanente
+app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Políticas de seguridad CSP y HSTS
 csp = {
@@ -75,47 +71,44 @@ def apply_secure_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
-# Se define SECRET_KEY para sesiones
-app.secret_key = os.getenv("SECRET_KEY")
-if not app.secret_key:
+# SECRET_KEY desde environment
+tmp_secret = os.getenv("SECRET_KEY")
+if not tmp_secret:
     raise RuntimeError("SECRET_KEY no está configurada en las Environment Variables")
+app.secret_key = tmp_secret
 
-# Se configuran parámetros del Service Layer de SAP
+# Configuración Service Layer SAP
 SERVICE_LAYER_URL = os.getenv(
     "SERVICE_LAYER_URL",
     "https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1"
-    
-).rstrip("/")   # ⚠️ elimina cualquier '/' sobrante al final
-
+).rstrip("/")
 COMPANY_DB  = os.getenv("COMPANY_DB", "PRDBERSA")
 SL_USER     = os.getenv("SL_USER", "brsuser02")
 SL_PASSWORD = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
 
-# Se define conexión a la base de datos PostgreSQL (Neon)
+# Conexión a PostgreSQL
 def get_db_connection():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
     return psycopg2.connect(db_url, sslmode='require', cursor_factory=RealDictCursor)
 
-# Ruta raíz redirige a login
+# Redirecciona raíz a login
 @app.route("/")
 def index():
     return redirect(url_for("login"))
 
-# Ruta de login
+# Login de usuarios
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
         user = request.form.get("username")
         pwd  = request.form.get("password")
-        conn = get_db_connection()
-        cur  = conn.cursor()
-        # Se consulta usuario activo con hash
+        conn = get_db_connection(); cur = conn.cursor()
         cur.execute(
-            "SELECT username, password AS hashed, role"
-            " FROM users WHERE username=%s AND active=TRUE", (user,)
+            "SELECT username, password AS hashed, role "
+            "FROM users WHERE username=%s AND active=TRUE", (user,)
         )
         row = cur.fetchone()
         if row:
@@ -124,25 +117,21 @@ def login():
             except (InvalidHashError, VerifyMismatchError):
                 error = "Credenciales inválidas."
             else:
-                # Verificación y rehash si cambian parámetros
                 if ph.check_needs_rehash(row['hashed']):
                     new_hash = ph.hash(pwd)
                     cur.execute(
                         "UPDATE users SET password=%s WHERE username=%s",
                         (new_hash, user)
-                    )
-                    conn.commit()
-                # Se inicia sesión
+                    ); conn.commit()
                 session.permanent    = True
                 session["username"] = row['username']
                 session["role"]     = row['role']
-                # Se cargan almacenes asociados
+                # Carga almacenes asociados
                 cur.execute(
                     "SELECT whscode FROM user_warehouses WHERE username=%s",
                     (user,)
                 )
                 whs = cur.fetchall()
-                # Se define lista de códigos
                 session["warehouses"] = [w['whscode'] for w in whs]
                 cur.close(); conn.close()
                 return redirect(url_for("dashboard"))
@@ -151,22 +140,22 @@ def login():
         cur.close(); conn.close()
     return render_template("login.html", error=error)
 
-# Ruta de dashboard
+# Dashboard con lista de ítems
 @app.route("/dashboard")
 def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
-    conn = get_db_connection()
-    cur  = conn.cursor()
-    # Se obtienen ítems
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute("SELECT itemcode, description FROM items_map")
     items = cur.fetchall()
     cur.close(); conn.close()
     return render_template(
-        "dashboard.html", username=session['username'], items=items
+        "dashboard.html",
+        username=session['username'],
+        items=items
     )
 
-# Envío de órdenes a SAP
+# Envío de órdenes a SAP mejorado con cookies y headers correctos
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -175,7 +164,6 @@ def submit():
     if not date:
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
-    # Construcción de líneas de orden
     lines = []
     for code, qty in zip(
         request.form.getlist('item_code'),
@@ -198,43 +186,40 @@ def submit():
         'DocumentLines': lines
     }
     try:
-        # Autenticación Service Layer
+        sl = requests.Session()
+        sl.verify = True
+        sl.headers.update({
+            'Content-Type': 'application/json',
+            'Accept':       'application/json'
+        })
         auth_payload = {
             'CompanyDB': COMPANY_DB,
             'UserName':  SL_USER,
             'Password':  SL_PASSWORD
         }
-        auth = requests.post(
-            f"{SERVICE_LAYER_URL}/Login",
-            json=auth_payload,
-            verify=True
-        )
-        auth.raise_for_status()
-        session_id = auth.json().get('SessionId')
-        cookies    = {'B1SESSION': session_id}
-        headers    = {'Prefer': 'return=representation'}
-        resp = requests.post(
-            f"{SERVICE_LAYER_URL}/Orders",
-            json=order,
-            cookies=cookies,
-            headers=headers,
-            verify=True
-        )
+        login_resp = sl.post(f"{SERVICE_LAYER_URL}/Login", json=auth_payload)
+        login_resp.raise_for_status()
+        sid = login_resp.json().get('SessionId')
+        route = login_resp.cookies.get('ROUTEID')
+        sl.cookies.clear()
+        sl.cookies.set('B1SESSION', sid, path='/b1s/v1')
+        if route:
+            sl.cookies.set('ROUTEID', route, path='/')
+        sl.headers.update({'Prefer': 'return=representation'})
+        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         resp.raise_for_status()
     except SSLError as ssl_err:
         app.logger.error(f"SSL error al conectar con SAP: {ssl_err}", exc_info=True)
         flash(f"SSL error detallado: {ssl_err}", "error")
         return redirect(url_for('dashboard'))
-    except RequestException as e:
-        app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
-        flash(f'Error conectando con SAP: {e}', 'error')
+    except RequestException as req_err:
+        app.logger.error(f"Error conectando con SAP: {req_err}", exc_info=True)
+        flash(f"Error conectando con SAP: {req_err}", "error")
         return redirect(url_for('dashboard'))
-    # Guardado en historial
-    data     = resp.json()
-    docnum   = data.get('DocNum')
+    data = resp.json()
+    docnum = data.get('DocNum')
     docentry = data.get('DocEntry')
-    conn = get_db_connection()
-    cur  = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
@@ -244,7 +229,8 @@ def submit():
             session['username'],
             session['warehouses'][0],
             session.get('cardcode'),
-            docentry, docnum
+            docentry,
+            docnum
         )
     )
     conn.commit(); cur.close(); conn.close()
@@ -255,9 +241,7 @@ def submit():
 def history():
     if 'username' not in session:
         return redirect(url_for('login'))
-    conn = get_db_connection()
-    cur  = conn.cursor()
-    # Si es manager, se filtra por varios almacenes
+    conn = get_db_connection(); cur = conn.cursor()
     if session.get('role') == 'manager':
         whs = session.get('warehouses', [])
         if whs:
@@ -266,20 +250,20 @@ def history():
                 " FROM recorded_orders WHERE whscode = ANY(%s)"
                 " ORDER BY timestamp DESC LIMIT 50", (whs,)
             )
+            rows = cur.fetchall()
         else:
             rows = []
     else:
-        # Usuarios normales ven solo su propio historial
         cur.execute(
             "SELECT timestamp, cardcode, whscode, docnum"
             " FROM recorded_orders WHERE username=%s"
             " ORDER BY timestamp DESC LIMIT 50", (session['username'],)
         )
-    if cur.statusmessage.startswith('SELECT'):
         rows = cur.fetchall()
     cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
+# Logout de usuarios
 @app.route("/logout")
 def logout():
     session.clear()
@@ -287,8 +271,7 @@ def logout():
 
 # Migración de contraseñas de texto plano a Argon2id
 def migrate_passwords():
-    conn = get_db_connection()
-    cur  = conn.cursor(cursor_factory=RealDictCursor)
+    conn = get_db_connection(); cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT username, password FROM users WHERE active=TRUE")
     users = cur.fetchall()
     for u in users:
