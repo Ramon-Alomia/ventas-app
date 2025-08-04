@@ -45,7 +45,6 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax'
 )
-# Duración de sesión permanente
 app.permanent_session_lifetime = timedelta(minutes=30)
 
 # Políticas de seguridad CSP y HSTS
@@ -93,69 +92,6 @@ def get_db_connection():
         raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
     return psycopg2.connect(db_url, sslmode='require', cursor_factory=RealDictCursor)
 
-# Redirecciona raíz a login
-@app.route("/")
-def index():
-    return redirect(url_for("login"))
-
-# Login de usuarios
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = None
-    if request.method == "POST":
-        user = request.form.get("username")
-        pwd  = request.form.get("password")
-        conn = get_db_connection(); cur = conn.cursor()
-        cur.execute(
-            "SELECT username, password AS hashed, role "
-            "FROM users WHERE username=%s AND active=TRUE", (user,)
-        )
-        row = cur.fetchone()
-        if row:
-            try:
-                ph.verify(row['hashed'], pwd)
-            except (InvalidHashError, VerifyMismatchError):
-                error = "Credenciales inválidas."
-            else:
-                if ph.check_needs_rehash(row['hashed']):
-                    new_hash = ph.hash(pwd)
-                    cur.execute(
-                        "UPDATE users SET password=%s WHERE username=%s",
-                        (new_hash, user)
-                    ); conn.commit()
-                session.permanent    = True
-                session["username"] = row['username']
-                session["role"]     = row['role']
-                # Carga almacenes asociados
-                cur.execute(
-                    "SELECT whscode FROM user_warehouses WHERE username=%s",
-                    (user,)
-                )
-                whs = cur.fetchall()
-                session["warehouses"] = [w['whscode'] for w in whs]
-                cur.close(); conn.close()
-                return redirect(url_for("dashboard"))
-        else:
-            error = "Credenciales inválidas."
-        cur.close(); conn.close()
-    return render_template("login.html", error=error)
-
-# Dashboard con lista de ítems
-@app.route("/dashboard")
-def dashboard():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT itemcode, description FROM items_map")
-    items = cur.fetchall()
-    cur.close(); conn.close()
-    return render_template(
-        "dashboard.html",
-        username=session['username'],
-        items=items
-    )
-
-# Envío de órdenes a SAP mejorado con cookies y headers correctos
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -164,19 +100,20 @@ def submit():
     if not date:
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
+    # Construcción de las líneas
     lines = []
     for code, qty in zip(
         request.form.getlist('item_code'),
         request.form.getlist('quantity')
     ):
         try:
-            q = int(qty)
+            qty_int = int(qty)
         except ValueError:
-            q = 0
-        if q > 0:
+            continue
+        if qty_int > 0:
             lines.append({
                 'ItemCode':      code,
-                'Quantity':      q,
+                'Quantity':      qty_int,
                 'WarehouseCode': session['warehouses'][0]
             })
     order = {
@@ -186,55 +123,49 @@ def submit():
         'DocumentLines': lines
     }
     try:
+        # Sesión persistente
         sl = requests.Session()
         sl.verify = True
         sl.headers.update({
             'Content-Type': 'application/json',
             'Accept':       'application/json'
         })
-        auth_payload = {
+        # Login SL
+        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
             'CompanyDB': COMPANY_DB,
             'UserName':  SL_USER,
             'Password':  SL_PASSWORD
-        }
-        login_resp = sl.post(f"{SERVICE_LAYER_URL}/Login", json=auth_payload)
-        login_resp.raise_for_status()
-        sid = login_resp.json().get('SessionId')
-        route = login_resp.cookies.get('ROUTEID')
+        })
+        auth.raise_for_status()
+        # Debug cookies tras login
+        app.logger.debug(f"Cookies SL: {sl.cookies.get_dict()}")
+        # Forzar cookie B1SESSION si no está
+        sid = auth.json().get('SessionId')
+        route = auth.cookies.get('ROUTEID')
         sl.cookies.clear()
-        sl.cookies.set('B1SESSION', sid, path='/b1s/v1')
+        sl.cookies.set('B1SESSION', sid, path='/')
         if route:
             sl.cookies.set('ROUTEID', route, path='/')
+        # Debug GET endpoints
+        meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
+        app.logger.debug(f"GET $metadata: {meta_get.status_code}")
+        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders")
+        app.logger.debug(f"GET Orders: {orders_get.status_code} body: {orders_get.text[:200]}")
+        # POST orden
         sl.headers.update({'Prefer': 'return=representation'})
         resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         resp.raise_for_status()
-    except SSLError as ssl_err:
-        app.logger.error(f"SSL error al conectar con SAP: {ssl_err}", exc_info=True)
-        flash(f"SSL error detallado: {ssl_err}", "error")
+    except SSLError as e:
+        flash(f"SSL error: {e}", 'error')
         return redirect(url_for('dashboard'))
-    except RequestException as req_err:
-        app.logger.error(f"Error conectando con SAP: {req_err}", exc_info=True)
-        flash(f"Error conectando con SAP: {req_err}", "error")
+    except RequestException as e:
+        flash(f"Error conectando con SAP: {e}", 'error')
         return redirect(url_for('dashboard'))
-    data = resp.json()
-    docnum = data.get('DocNum')
-    docentry = data.get('DocEntry')
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
-        VALUES (NOW(), %s, %s, %s, %s, %s)
-        """,
-        (
-            session['username'],
-            session['warehouses'][0],
-            session.get('cardcode'),
-            docentry,
-            docnum
-        )
-    )
-    conn.commit(); cur.close(); conn.close()
-    return render_template('result.html', success=True, docnum=docnum, docentry=docentry)
+    # Resultado exitoso
+    result = resp.json()
+    return render_template('result.html', success=True,
+                           docnum=result.get('DocNum'),
+                           docentry=result.get('DocEntry'))
 
 # Historial de órdenes
 @app.route("/history")
