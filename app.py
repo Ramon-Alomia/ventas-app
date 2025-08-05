@@ -141,18 +141,7 @@ def login():
         cur.close(); conn.close()
     return render_template('login.html', error=error)
 
-# Dashboard con lista de ítems
-@app.route("/dashboard")
-def dashboard():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT itemcode, description FROM items_map")
-    items = cur.fetchall()
-    cur.close(); conn.close()
-    return render_template('dashboard.html', username=session['username'], items=items)
-
-# Envío de órdenes a SAP con debug específico para OrdersEntitySet e inserción en Orders
+# Envío de órdenes a SAP con debug y cookies manuales
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -165,8 +154,7 @@ def submit():
 
     # Construcción de líneas de documento
     lines = []
-    for code, qty in zip(request.form.getlist('item_code'),
-                         request.form.getlist('quantity')):
+    for code, qty in zip(request.form.getlist('item_code'), request.form.getlist('quantity')):
         try:
             qty_int = int(qty)
         except ValueError:
@@ -186,52 +174,62 @@ def submit():
     }
 
     try:
-        # Iniciar sesión en Service Layer
-        sl = requests.Session()
-        sl.verify = False  # True si tu certificado es válido
-        sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
-
-        auth = sl.post(
+        # 1) Autenticación Service Layer (login)
+        auth_resp = requests.post(
             f"{SERVICE_LAYER_URL}/Login",
             json={
                 'CompanyDB': COMPANY_DB,
                 'UserName':  SL_USER,
                 'Password':  SL_PASSWORD
-            }
+            },
+            verify=False
         )
-        auth.raise_for_status()
-        app.logger.debug("Cookies tras login: %s", sl.cookies.get_dict())
+        auth_resp.raise_for_status()
 
-        # Debug: extraer solo el bloque Orders del metadata
-        meta_get  = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
-        meta_text = meta_get.text
-        start     = meta_text.find('<EntitySet Name="Orders"')
-        end       = meta_text.find('</EntitySet>', start) + len('</EntitySet>')
-        orders_md = meta_text[start:end] if start >= 0 and end >= 0 else '(bloque Orders no encontrado)'
-        app.logger.debug(f"Metadata Orders EntitySet:\n{orders_md}")
+        # 2) Extracción manual de cookies
+        session_id = auth_resp.json().get('SessionId')
+        cookies    = {'B1SESSION': session_id}
+        route      = auth_resp.cookies.get('ROUTEID')
+        if route:
+            cookies['ROUTEID'] = route
+        app.logger.debug('Cookies manuales a enviar: %s', cookies)
 
-        # Intento de inserción en Orders
-        sl.headers.update({'Prefer': 'return=representation'})
-        app.logger.debug("Probando POST a /Orders…")
-        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
-        app.logger.debug(
-            f"Response Orders: {resp.status_code} — body:\n{resp.text[:300]}"
+        # 3) Debug: validar metadata de Orders
+        meta_resp = requests.get(
+            f"{SERVICE_LAYER_URL}/$metadata",
+            cookies=cookies,
+            verify=False
         )
+        meta_text = meta_resp.text
+        idx       = meta_text.find('Name="Orders"')
+        snippet   = meta_text[idx-200:idx+200] if idx >= 0 else '(Orders no encontrado)'
+        app.logger.debug('Metadata Orders EntitySet (±200 chars):\n%s', snippet)
+
+        # 4) Envío de la orden con cookies y headers
+        headers = {'Prefer': 'return=representation', 'Content-Type': 'application/json'}
+        resp    = requests.post(
+            f"{SERVICE_LAYER_URL}/Orders",
+            json=order,
+            cookies=cookies,
+            headers=headers,
+            verify=False
+        )
+        app.logger.debug('Response POST Orders %s — body: %s', resp.status_code, resp.text[:300])
         resp.raise_for_status()
 
     except SSLError as e:
         app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
-        flash(f"SSL error detallado: {e}", "error")
+        flash(f"SSL error detallado: {e}", 'error')
         return redirect(url_for('dashboard'))
 
     except RequestException as e:
         app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
-        flash(f'Error conectando con SAP: {e}', 'error')
+        flash(f"Error conectando con SAP: {e}", 'error')
         return redirect(url_for('dashboard'))
 
-    # Guardar histórico y renderizar resultado
-    data   = resp.json()
-    docnum = data.get('DocNum')
+    # 5) Guardar histórico y renderizar resultado
+    data     = resp.json()
+    docnum   = data.get('DocNum')
     docentry = data.get('DocEntry')
 
     conn = get_db_connection()
@@ -259,7 +257,6 @@ def submit():
         docnum=docnum,
         docentry=docentry
     )
-
 
 # Historial de órdenes
 @app.route("/history")
