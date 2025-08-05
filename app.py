@@ -41,7 +41,6 @@ ph = PasswordHasher(
 # Inicialización de Flask
 app = Flask(__name__)
 # Logging en DEBUG
-dlogging = logging.getLogger('werkzeug')
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
@@ -189,32 +188,33 @@ def submit():
     order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
 
     try:
-        # 1) Autenticación en Service Layer
-        auth_resp = requests.post(
-            f"{SERVICE_LAYER_URL}/Login",
-            json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD},
-            verify=False
-        )
-        auth_resp.raise_for_status()
-        # 2) Extraer cookies
-        session_id = auth_resp.json().get('SessionId')
-        cookies    = {'B1SESSION': session_id}
-        route      = auth_resp.cookies.get('ROUTEID')
+        # 1) Sesión híbrida: requests.Session
+        sl = requests.Session()
+        sl.verify = False
+        sl.headers.update({'Content-Type':'application/json', 'Accept':'application/json'})
+
+        # Login
+        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
+            'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD
+        })
+        auth.raise_for_status()
+
+        # 2) Reset jar y set cookie con path
+        sid   = auth.json().get('SessionId')
+        route = auth.cookies.get('ROUTEID')
+        sl.cookies.clear()
+        sl.cookies.set('B1SESSION', sid, path='/b1s/v1')
         if route:
-            cookies['ROUTEID'] = route
-        app.logger.debug('Cookies manuales a enviar: %s', cookies)
+            sl.cookies.set('ROUTEID', route, path='/')
+        app.logger.debug('Jar reseteado: %s', sl.cookies.get_dict())
+
         # 3) Metadata debug
-        meta_resp = requests.get(f"{SERVICE_LAYER_URL}/$metadata", cookies=cookies, verify=False)
-        app.logger.debug('Metadata Orders snippet: %s', meta_resp.text[:300])
-        # 4) POST orden
-        headers = {'Prefer': 'return=representation', 'Content-Type': 'application/json'}
-        resp    = requests.post(
-            f"{SERVICE_LAYER_URL}/Orders",
-            json=order,
-            cookies=cookies,
-            headers=headers,
-            verify=False
-        )
+        meta = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
+        app.logger.debug('Metadata Orders snippet: %s', meta.text[:300])
+
+        # 4) Envío de la orden
+        sl.headers.update({'Prefer':'return=representation'})
+        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         app.logger.debug('Response POST Orders %s — %s', resp.status_code, resp.text[:300])
         resp.raise_for_status()
 
@@ -227,18 +227,20 @@ def submit():
         flash(f"Error conectando con SAP: {e}", 'error')
         return redirect(url_for('dashboard'))
 
-    # Guardar histórico
-    data    = resp.json()
-    conn    = get_db_connection(); cur = conn.cursor()
+    # Guardar histórico y renderizar
+    data = resp.json()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
         VALUES (NOW(), %s, %s, %s, %s, %s)
         """,
-        (session['username'], session['warehouses'][0], session.get('cardcode'), data.get('DocEntry'), data.get('DocNum'))
+        (
+            session['username'], session['warehouses'][0], session.get('cardcode'),
+            data.get('DocEntry'), data.get('DocNum')
+        )
     )
     conn.commit(); cur.close(); conn.close()
-
     return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
 
 @app.route("/history")
@@ -246,11 +248,18 @@ def history():
     if 'username' not in session:
         return redirect(url_for('login'))
     conn = get_db_connection(); cur = conn.cursor()
-    if session.get('role') == 'manager':
+    allowed = ('manager','admin','supervisor')
+    if session.get('role') in allowed:
         whs = session.get('warehouses', [])
-        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode=ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,))
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders "
+            "WHERE whscode = ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,)
+        )
     else:
-        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],))
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders "
+            "WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],)
+        )
     rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
@@ -270,7 +279,7 @@ def migrate_passwords():
     conn.commit(); cur.close(); conn.close(); print(f"Migrados {len(users)} usuarios.")
 
 if __name__ == "__main__":
-    if os.getenv('MIGRATE') == '1':
+    if os.getenv('MIGRATE')=='1':
         migrate_passwords()
     else:
-        app.run(debug=False, host='0.0.0.0', port=int(os.getenv('PORT', 5000)), ssl_context='adhoc')
+        app.run(debug=False, host='0.0.0.0', port=int(os.getenv('PORT',5000)), ssl_context='adhoc')
