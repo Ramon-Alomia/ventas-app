@@ -157,36 +157,124 @@ def dashboard():
 def submit():
     if 'username' not in session:
         return redirect(url_for('login'))
+
     date = request.form.get('date')
     if not date:
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
+
+    # Construcción de líneas
     lines = []
-    for code, qty in zip(request.form.getlist('item_code'), request.form.getlist('quantity')):
+    for code, qty in zip(request.form.getlist('item_code'),
+                         request.form.getlist('quantity')):
         try:
             qty_int = int(qty)
         except ValueError:
             continue
         if qty_int > 0:
-            lines.append({'ItemCode': code, 'Quantity': qty_int, 'WarehouseCode': session['warehouses'][0]})
-    order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
+            lines.append({
+                'ItemCode':      code,
+                'Quantity':      qty_int,
+                'WarehouseCode': session['warehouses'][0]
+            })
+
+    order = {
+        'CardCode':       session.get('cardcode'),
+        'DocDate':        date,
+        'DocDueDate':     date,
+        'DocumentLines':  lines
+    }
+
     try:
-        sl = requests.Session(); sl.verify = True
-        sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
-        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD})
+        sl = requests.Session()
+        sl.verify = True
+        sl.headers.update({
+            'Content-Type': 'application/json',
+            'Accept':       'application/json'
+        })
+
+        # 1) Login
+        auth = sl.post(
+            f"{SERVICE_LAYER_URL}/Login",
+            json={
+                'CompanyDB': COMPANY_DB,
+                'UserName':  SL_USER,
+                'Password':  SL_PASSWORD
+            }
+        )
         auth.raise_for_status()
         app.logger.debug(f"Cookies SL tras login: {sl.cookies.get_dict()}")
-        sid = auth.json().get('SessionId'); route = auth.cookies.get('ROUTEID')
-        meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata"); app.logger.debug(f"GET $metadata: {meta_get.status_code}")
-        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders"); app.logger.debug(f"GET Orders: {orders_get.status_code} body: {orders_get.text[:300]}")
+
+        # Reconstruir cookies para el Service Layer
+        sid   = auth.json().get('SessionId')
+        route = auth.cookies.get('ROUTEID')
+        sl.cookies.clear()
+        sl.cookies.set('B1SESSION', sid, path='/')
+        if route:
+            sl.cookies.set('ROUTEID', route, path='/')
+
+        # 2) Debug: trae metadata y loggea un snippet
+        meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
+        app.logger.debug(
+            f"GET $metadata: {meta_get.status_code} — snippet:\n"
+            f"{meta_get.text[:1000]}"
+        )
+
+        # 3) Debug: GET Orders para verificar acceso de lectura
+        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders")
+        app.logger.debug(
+            f"GET Orders: {orders_get.status_code} — body:\n"
+            f"{orders_get.text[:300]}"
+        )
+
+        # 4) Intento de creación (POST).
+        #    Más adelante podrías cambiar '/Orders' por '/SalesOrders'
+        #    si metadata muestra que Orders no es insertable.
         sl.headers.update({'Prefer': 'return=representation'})
-        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order); resp.raise_for_status()
+        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
+        resp.raise_for_status()
+
     except SSLError as e:
-        flash(f"SSL error: {e}", 'error'); return redirect(url_for('dashboard'))
+        app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
+        flash(f"SSL error detallado: {e}", "error")
+        return redirect(url_for('dashboard'))
+
     except RequestException as e:
-        flash(f"Error conectando con SAP: {e}", 'error'); return redirect(url_for('dashboard'))
-    result = resp.json()
-    return render_template('result.html', success=True, docnum=result.get('DocNum'), docentry=result.get('DocEntry'))
+        app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
+        flash(f'Error conectando con SAP: {e}', 'error')
+        return redirect(url_for('dashboard'))
+
+    # 5) Si llegamos aquí, el POST fue 2xx: guardamos histórico
+    data     = resp.json()
+    docnum   = data.get('DocNum')
+    docentry = data.get('DocEntry')
+
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO recorded_orders 
+          (timestamp, username, whscode, cardcode, docentry, docnum)
+        VALUES (NOW(), %s, %s, %s, %s, %s)
+        """,
+        (
+            session['username'],
+            session['warehouses'][0],
+            session.get('cardcode'),
+            docentry,
+            docnum
+        )
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return render_template(
+        'result.html',
+        success=True,
+        docnum=docnum,
+        docentry=docentry
+    )
 
 # Historial de órdenes
 @app.route("/history")
