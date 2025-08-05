@@ -187,33 +187,19 @@ def submit():
 
     try:
         sl = requests.Session()
-        sl.verify = True
-        sl.headers.update({
-            'Content-Type': 'application/json',
-            'Accept':       'application/json'
-        })
+        sl.verify = False   # o True si tu cert es válido
+        sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
 
-        # 1) Login
-        auth = sl.post(
-            f"{SERVICE_LAYER_URL}/Login",
-            json={
-                'CompanyDB': COMPANY_DB,
-                'UserName':  SL_USER,
-                'Password':  SL_PASSWORD
-            }
-        )
+# 1) Login
+        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
+        'CompanyDB': COMPANY_DB,
+        'UserName':  SL_USER,
+        'Password':  SL_PASSWORD
+                                })
         auth.raise_for_status()
-        app.logger.debug(f"Cookies SL tras login: {sl.cookies.get_dict()}")
+        app.logger.debug("Cookies tras login: %s", sl.cookies.get_dict())
 
-        # Reconstruir cookies para el Service Layer
-        sid   = auth.json().get('SessionId')
-        route = auth.cookies.get('ROUTEID')
-        sl.cookies.clear()
-        sl.cookies.set('B1SESSION', sid, path='/')
-        if route:
-            sl.cookies.set('ROUTEID', route, path='/')
-
-        # 2) Debug: trae metadata y loggea un snippet
+# 2) Opcional: verifica metadata y GET Orders
         meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
         meta_text = meta_get.text
 
@@ -238,12 +224,11 @@ def submit():
         )
         resp.raise_for_status()
 
-        # 4) Intento de creación (POST).
-        #    Más adelante podrías cambiar '/Orders' por '/SalesOrders'
-        #    si metadata muestra que Orders no es insertable.
+# 3) Envía la orden con la misma sesión
         sl.headers.update({'Prefer': 'return=representation'})
         resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         resp.raise_for_status()
+
 
     except SSLError as e:
         app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
