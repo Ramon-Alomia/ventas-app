@@ -33,6 +33,13 @@
       text-align: center;
       gap: 1.5rem;
       min-height: 100vh;
+      justify-content: flex-start;
+      /* el contenido empieza arriba */
+      align-items: center;
+      /* si quieres centrar horizontal */
+      padding: 1rem;
+      /* un poco de aire */
+      overflow-y: auto;
     }
 
     /* 3) Caja “card” para el login */
@@ -96,7 +103,6 @@
 <body>
 
   <body>
-    <h1></h1>
     <h1>Bienvenido, {{ username }}</h1>
 
     <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
@@ -160,30 +166,6 @@
       <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
       <a href="{{ url_for('logout') }}">Cerrar sesión</a>
     </p>
-
-    <script>
-      // CAMBIO 3: capturamos la tabla en una variable para usarla en ambos controladores
-      const table = document.getElementById('lines');
-
-      // Clona la primera línea para añadir una nueva
-      document.getElementById('addLine').addEventListener('click', () => {
-        const first = table.querySelector('.line');
-        const clone = first.cloneNode(true);
-        clone.querySelector('input[name="quantity"]').value = '';
-        clone.querySelector('select[name="item_code"]').selectedIndex = 0;
-        table.appendChild(clone);
-      });
-
-      // Permite eliminar líneas (dejando al menos una)
-      table.addEventListener('click', e => {
-        if (e.target.classList.contains('remove')) {
-          const rows = table.querySelectorAll('.line');
-          if (rows.length > 1) {
-            e.target.closest('tr').remove();
-          }
-        }
-      });
-    </script>
 
 
     <script>
