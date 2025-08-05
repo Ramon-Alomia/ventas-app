@@ -152,7 +152,7 @@ def dashboard():
     cur.close(); conn.close()
     return render_template('dashboard.html', username=session['username'], items=items)
 
-# Envío de órdenes a SAP con debug específico para OrdersEntitySet e inserción en SalesOrders
+# Envío de órdenes a SAP con debug específico para OrdersEntitySet e inserción en Orders
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -210,12 +210,12 @@ def submit():
         orders_md = meta_text[start:end] if start >= 0 and end >= 0 else '(bloque Orders no encontrado)'
         app.logger.debug(f"Metadata Orders EntitySet:\n{orders_md}")
 
-        # Intento de inserción en SalesOrders
+        # Intento de inserción en Orders
         sl.headers.update({'Prefer': 'return=representation'})
-        app.logger.debug("Probando POST a /SalesOrders…")
-        resp = sl.post(f"{SERVICE_LAYER_URL}/SalesOrders", json=order)
+        app.logger.debug("Probando POST a /Orders…")
+        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         app.logger.debug(
-            f"Response SalesOrders: {resp.status_code} — body:\n{resp.text[:300]}"
+            f"Response Orders: {resp.status_code} — body:\n{resp.text[:300]}"
         )
         resp.raise_for_status()
 
