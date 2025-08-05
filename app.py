@@ -152,7 +152,7 @@ def dashboard():
     cur.close(); conn.close()
     return render_template('dashboard.html', username=session['username'], items=items)
 
-# Envío de órdenes a SAP con debug de cookies y endpoints
+# Envío de órdenes a SAP con debug específico para OrdersEntitySet e inserción en SalesOrders
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -163,7 +163,7 @@ def submit():
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
 
-    # Construcción de líneas
+    # Construcción de líneas de documento
     lines = []
     for code, qty in zip(request.form.getlist('item_code'),
                          request.form.getlist('quantity')):
@@ -179,56 +179,45 @@ def submit():
             })
 
     order = {
-        'CardCode':       session.get('cardcode'),
-        'DocDate':        date,
-        'DocDueDate':     date,
-        'DocumentLines':  lines
+        'CardCode':      session.get('cardcode'),
+        'DocDate':       date,
+        'DocDueDate':    date,
+        'DocumentLines': lines
     }
 
     try:
+        # Iniciar sesión en Service Layer
         sl = requests.Session()
-        sl.verify = False   # o True si tu cert es válido
+        sl.verify = False  # True si tu certificado es válido
         sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
 
-# 1) Login
-        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
-        'CompanyDB': COMPANY_DB,
-        'UserName':  SL_USER,
-        'Password':  SL_PASSWORD
-                                })
+        auth = sl.post(
+            f"{SERVICE_LAYER_URL}/Login",
+            json={
+                'CompanyDB': COMPANY_DB,
+                'UserName':  SL_USER,
+                'Password':  SL_PASSWORD
+            }
+        )
         auth.raise_for_status()
         app.logger.debug("Cookies tras login: %s", sl.cookies.get_dict())
 
-# 2) Opcional: verifica metadata y GET Orders
-        meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
+        # Debug: extraer solo el bloque Orders del metadata
+        meta_get  = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
         meta_text = meta_get.text
+        start     = meta_text.find('<EntitySet Name="Orders"')
+        end       = meta_text.find('</EntitySet>', start) + len('</EntitySet>')
+        orders_md = meta_text[start:end] if start >= 0 and end >= 0 else '(bloque Orders no encontrado)'
+        app.logger.debug(f"Metadata Orders EntitySet:\n{orders_md}")
 
-        # Busca el bloque EntitySet para Orders
-        start = meta_text.find('<EntitySet Name="Orders"')
-        end   = meta_text.find('</EntitySet>', start) + len('</EntitySet>')
-        orders_metadata = meta_text[start:end]
-
-        app.logger.debug(
-            f"GET $metadata EntitySet Orders (Insertable?):\n{orders_metadata}"
-)
-
-        # 3) Debug: GET Orders para verificar acceso de lectura
-        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders")
-        # Diagnosticé que Orders no era insertable → probamos SalesOrders
-        app.logger.debug("Intentando POST a SalesOrders en lugar de Orders")
+        # Intento de inserción en SalesOrders
         sl.headers.update({'Prefer': 'return=representation'})
+        app.logger.debug("Probando POST a /SalesOrders…")
         resp = sl.post(f"{SERVICE_LAYER_URL}/SalesOrders", json=order)
         app.logger.debug(
-            f"POST SalesOrders HTTP/{resp.status_code} — "
-            f"body: {resp.text[:300]}"
+            f"Response SalesOrders: {resp.status_code} — body:\n{resp.text[:300]}"
         )
         resp.raise_for_status()
-
-# 3) Envía la orden con la misma sesión
-        sl.headers.update({'Prefer': 'return=representation'})
-        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
-        resp.raise_for_status()
-
 
     except SSLError as e:
         app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
@@ -240,17 +229,16 @@ def submit():
         flash(f'Error conectando con SAP: {e}', 'error')
         return redirect(url_for('dashboard'))
 
-    # 5) Si llegamos aquí, el POST fue 2xx: guardamos histórico
-    data     = resp.json()
-    docnum   = data.get('DocNum')
+    # Guardar histórico y renderizar resultado
+    data   = resp.json()
+    docnum = data.get('DocNum')
     docentry = data.get('DocEntry')
 
     conn = get_db_connection()
     cur  = conn.cursor()
     cur.execute(
         """
-        INSERT INTO recorded_orders 
-          (timestamp, username, whscode, cardcode, docentry, docnum)
+        INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
         VALUES (NOW(), %s, %s, %s, %s, %s)
         """,
         (
@@ -271,6 +259,7 @@ def submit():
         docnum=docnum,
         docentry=docentry
     )
+
 
 # Historial de órdenes
 @app.route("/history")
