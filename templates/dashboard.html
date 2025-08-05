@@ -127,6 +127,23 @@
       </label>
       <br><br>
 
+      <!-- WAREHOUSE: Selección de almacén según sesión -->
+      <label>Almacén:<br>
+        {% if warehouses|length > 1 %}
+          <select name="warehouse" id="warehouse" required>
+            <option value="" disabled selected>Selecciona un almacén…</option>
+            {% for wh in warehouses %}
+              <option value="{{ wh }}">{{ wh }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          {# Si sólo hay uno, ocultamos el select y enviamos valor fijo #}
+          <input type="hidden" name="warehouse" value="{{ warehouses[0] or '' }}">
+          <strong>{{ warehouses[0] or '—' }}</strong>
+        {% endif %}
+      </label>
+      <br><br>
+      
       <table id="lines">
         <tr>
           <th>Tipo de comida</th>

@@ -163,7 +163,13 @@ def dashboard():
     cur.execute("SELECT itemcode, description FROM items_map")
     items = cur.fetchall()
     cur.close(); conn.close()
-    return render_template('dashboard.html', username=session['username'], items=items)
+    # Envia también la lista de almacenes desde sesión
+    return render_template(
+        'dashboard.html',
+        username=session['username'],
+        items=items,
+        warehouses=session.get('warehouses', [])
+    )
 
 @app.route("/submit", methods=["POST"])
 def submit():
@@ -176,6 +182,19 @@ def submit():
         return redirect(url_for('dashboard'))
 
     # Construcción de líneas
+    # 1) obtener almacén seleccionado (o por defecto)
+    selected_whs = request.form.get('warehouse', session['warehouses'][0])
+    # 2) obtener cardcode para ese almacén
+    conn_db = get_db_connection(); cur_db = conn_db.cursor()
+    cur_db.execute(
+        "SELECT cardcode FROM warehouses WHERE whscode=%s",
+        (selected_whs,)
+    )
+    row = cur_db.fetchone()
+    conn_db.close()
+    cardcode = row['cardcode'] if row and row.get('cardcode') else session.get('cardcode')
+
+    # construcción de líneas usando selected_whs
     lines = []
     for code, qty in zip(request.form.getlist('item_code'), request.form.getlist('quantity')):
         try:
@@ -183,7 +202,18 @@ def submit():
         except ValueError:
             continue
         if qty_int > 0:
-            lines.append({'ItemCode': code, 'Quantity': qty_int, 'WarehouseCode': session['warehouses'][0]})
+            lines.append({
+                'ItemCode': code,
+                'Quantity': qty_int,
+                'WarehouseCode': selected_whs
+            })
+
+    order = {
+        'CardCode':      cardcode,
+        'DocDate':       date,
+        'DocDueDate':    date,
+        'DocumentLines': lines
+    }
 
     order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
 
@@ -228,20 +258,32 @@ def submit():
         return redirect(url_for('dashboard'))
 
     # Guardar histórico y renderizar
+    # Guardar histórico con selected_whs y cardcode calculado
     data = resp.json()
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
+    conn_h = get_db_connection(); cur_h = conn_h.cursor()
+    cur_h.execute(
         """
-        INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
-        VALUES (NOW(), %s, %s, %s, %s, %s)
+        INSERT INTO recorded_orders (
+          timestamp, username, whscode, cardcode, docentry, docnum
+        ) VALUES (
+          NOW(), %s, %s, %s, %s, %s
+        )
         """,
         (
-            session['username'], session['warehouses'][0], session.get('cardcode'),
-            data.get('DocEntry'), data.get('DocNum')
+            session['username'],
+            selected_whs,
+            cardcode,
+            data.get('DocEntry'),
+            data.get('DocNum')
         )
     )
-    conn.commit(); cur.close(); conn.close()
-    return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
+    conn_h.commit(); cur_h.close(); conn_h.close()
+    return render_template(
+        'result.html',
+        success=True,
+        docnum=data.get('DocNum'),
+        docentry=data.get('DocEntry')
+    )
 
 @app.route("/history")
 def history():
@@ -250,16 +292,22 @@ def history():
     conn = get_db_connection(); cur = conn.cursor()
     allowed = ('manager','admin','supervisor')
     if session.get('role') in allowed:
-        whs = session.get('warehouses', [])
+        # Ven todo el histórico
         cur.execute(
-            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders "
-            "WHERE whscode = ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,)
+            "SELECT timestamp, username, cardcode, whscode, docnum "
+            "FROM recorded_orders "
+            "ORDER BY timestamp DESC LIMIT 50"
         )
     else:
+        # Sólo lo propio
         cur.execute(
-            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders "
-            "WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],)
+            "SELECT timestamp, cardcode, whscode, docnum "
+            "FROM recorded_orders "
+            "WHERE username=%s "
+            "ORDER BY timestamp DESC LIMIT 50",
+            (session['username'],)
         )
+    
     rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
