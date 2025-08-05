@@ -39,34 +39,29 @@ ph = PasswordHasher(
 
 # Inicialización de Flask
 app = Flask(__name__)
-# Configuración de logging para mostrar DEBUG en los logs
+# Logging en DEBUG
 import logging
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
-# Configuración de cookies seguras
-app.config.update(
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='Lax'
-)
+
+# Cookies seguras y sesiones
+a = {
+    'SESSION_COOKIE_SECURE': True,
+    'SESSION_COOKIE_HTTPONLY': True,
+    'SESSION_COOKIE_SAMESITE': 'Lax'
+}
+app.config.update(a)
 app.permanent_session_lifetime = timedelta(minutes=30)
 
-# Políticas de seguridad CSP y HSTS
+# Políticas CSP y HSTS
 csp = {
   'default-src': ["'self'"],
   'script-src':  ["'self'", 'cdnjs.cloudflare.com'],
-  # permitimos inline styles y Google Fonts
-  'style-src':   ["'self'", "'unsafe-inline'", 'cdnjs.cloudflare.com', 'fonts.googleapis.com'],
+  'style-src':   ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
   'font-src':    ["'self'", 'fonts.gstatic.com'],
   'img-src':     ["'self'", 'data:']
 }
-Talisman(
-    app,
-    content_security_policy=csp,
-    force_https=True,
-    strict_transport_security=True,
-    strict_transport_security_max_age=31536000
-)
+Talisman(app, content_security_policy=csp)
 
 @app.after_request
 def apply_secure_headers(response):
@@ -76,72 +71,57 @@ def apply_secure_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
-# SECRET_KEY desde environment
+# SECRET_KEY
 tmp_secret = os.getenv("SECRET_KEY")
 if not tmp_secret:
-    raise RuntimeError("SECRET_KEY no está configurada en las Environment Variables")
+    raise RuntimeError("SECRET_KEY no está configurada")
 app.secret_key = tmp_secret
 
-# Configuración Service Layer SAP
+# Service Layer SAP
 SERVICE_LAYER_URL = os.getenv(
     "SERVICE_LAYER_URL",
     "https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1"
 ).rstrip("/")
 COMPANY_DB  = os.getenv("COMPANY_DB", "PRDBERSA")
 SL_USER     = os.getenv("SL_USER", "brsuser02")
-SL_PASSWORD = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
+SL_PASSWORD = os.getenv("SL_PASSWORD", "\$PniBvQ7rBa6!A")
 
-# Conexión a PostgreSQL
+# Conexión Postgres
 def get_db_connection():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
+        raise RuntimeError("DATABASE_URL no está configurada")
     return psycopg2.connect(db_url, sslmode='require', cursor_factory=RealDictCursor)
 
-# Ruta raíz redirige a login
+# --- Rutas básicas ---
 @app.route("/")
 def index():
     return redirect(url_for("login"))
 
-# Login de usuarios
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
-        user = request.form.get("username")
-        pwd = request.form.get("password")
+        user = request.form['username']
+        pwd  = request.form['password']
         conn = get_db_connection(); cur = conn.cursor()
-        cur.execute(
-            "SELECT username, password AS hashed, role FROM users WHERE username=%s AND active=TRUE", (user,)
-        )
+        cur.execute("SELECT username, password, role FROM users WHERE username=%s AND active=TRUE", (user,))
         row = cur.fetchone()
+        cur.close(); conn.close()
         if row:
             try:
-                ph.verify(row['hashed'], pwd)
+                ph.verify(row[1], pwd)
             except (InvalidHashError, VerifyMismatchError):
                 error = "Credenciales inválidas."
             else:
-                if ph.check_needs_rehash(row['hashed']):
-                    new_hash = ph.hash(pwd)
-                    cur.execute(
-                        "UPDATE users SET password=%s WHERE username=%s", (new_hash, user)
-                    ); conn.commit()
                 session.permanent = True
-                session['username'] = row['username']
-                session['role'] = row['role']
-                cur.execute(
-                    "SELECT whscode FROM user_warehouses WHERE username=%s", (user,)
-                )
-                whs = cur.fetchall()
-                session['warehouses'] = [w['whscode'] for w in whs]
-                cur.close(); conn.close()
+                session['username'] = row[0]
+                session['role']     = row[2]
                 return redirect(url_for('dashboard'))
         else:
             error = "Credenciales inválidas."
-        cur.close(); conn.close()
     return render_template('login.html', error=error)
 
-# Dashboard con lista de ítems
 @app.route("/dashboard")
 def dashboard():
     if 'username' not in session:
@@ -152,31 +132,23 @@ def dashboard():
     cur.close(); conn.close()
     return render_template('dashboard.html', username=session['username'], items=items)
 
-# Envío de órdenes a SAP con debug específico para OrdersEntitySet e inserción en SalesOrders
+# --- Envío de órdenes ---
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
         return redirect(url_for('login'))
-
     date = request.form.get('date')
     if not date:
-        flash('Por favor selecciona una fecha para la orden.', 'error')
+        flash('Por favor selecciona una fecha', 'error')
         return redirect(url_for('dashboard'))
 
-    # Construcción de líneas de documento
     lines = []
-    for code, qty in zip(request.form.getlist('item_code'),
-                         request.form.getlist('quantity')):
+    for code, qty in zip(request.form.getlist('item_code'), request.form.getlist('quantity')):
         try:
-            qty_int = int(qty)
+            if int(qty) > 0:
+                lines.append({'ItemCode': code, 'Quantity': int(qty), 'WarehouseCode': session.get('warehouses', [])[0]})
         except ValueError:
             continue
-        if qty_int > 0:
-            lines.append({
-                'ItemCode':      code,
-                'Quantity':      qty_int,
-                'WarehouseCode': session['warehouses'][0]
-            })
 
     order = {
         'CardCode':      session.get('cardcode'),
@@ -186,82 +158,53 @@ def submit():
     }
 
     try:
-        # Iniciar sesión en Service Layer
         sl = requests.Session()
-        sl.verify = False  # True si tu certificado es válido
+        sl.verify = False
         sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
 
-        auth = sl.post(
-            f"{SERVICE_LAYER_URL}/Login",
-            json={
-                'CompanyDB': COMPANY_DB,
-                'UserName':  SL_USER,
-                'Password':  SL_PASSWORD
-            }
-        )
+        # Login SL
+        auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
+            'CompanyDB': COMPANY_DB,
+            'UserName':  SL_USER,
+            'Password':  SL_PASSWORD
+        })
         auth.raise_for_status()
-        app.logger.debug("Cookies tras login: %s", sl.cookies.get_dict())
+        app.logger.debug("Cookies SL tras login: %s", sl.cookies.get_dict())
 
-        # Debug: extraer solo el bloque Orders del metadata
-        meta_get  = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
-        meta_text = meta_get.text
-        start     = meta_text.find('<EntitySet Name="Orders"')
-        end       = meta_text.find('</EntitySet>', start) + len('</EntitySet>')
-        orders_md = meta_text[start:end] if start >= 0 and end >= 0 else '(bloque Orders no encontrado)'
-        app.logger.debug(f"Metadata Orders EntitySet:\n{orders_md}")
+        # Debug Metadata & GET Orders
+        meta = sl.get(f"{SERVICE_LAYER_URL}/$metadata").text
+        app.logger.debug("Metadata Orders EntitySet:\n%s", meta)
+        orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders")
+        app.logger.debug("GET Orders: %s", orders_get.status_code)
 
-        # Intento de inserción en SalesOrders
+        # POST /Orders
         sl.headers.update({'Prefer': 'return=representation'})
-        app.logger.debug("Probando POST a /SalesOrders…")
-        resp = sl.post(f"{SERVICE_LAYER_URL}/SalesOrders", json=order)
-        app.logger.debug(
-            f"Response SalesOrders: {resp.status_code} — body:\n{resp.text[:300]}"
-        )
+        resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
+        app.logger.debug("POST Orders: %s - %s", resp.status_code, resp.text[:200])
         resp.raise_for_status()
 
     except SSLError as e:
-        app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
-        flash(f"SSL error detallado: {e}", "error")
+        app.logger.error("SSL error: %s", e, exc_info=True)
+        flash(f"SSL error: {e}", 'error')
         return redirect(url_for('dashboard'))
-
     except RequestException as e:
-        app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
-        flash(f'Error conectando con SAP: {e}', 'error')
+        app.logger.error("Error SL: %s", e, exc_info=True)
+        flash(f"Error conectando con SAP: {e}", 'error')
         return redirect(url_for('dashboard'))
 
-    # Guardar histórico y renderizar resultado
-    data   = resp.json()
-    docnum = data.get('DocNum')
-    docentry = data.get('DocEntry')
-
-    conn = get_db_connection()
-    cur  = conn.cursor()
+    data = resp.json()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
         VALUES (NOW(), %s, %s, %s, %s, %s)
         """,
-        (
-            session['username'],
-            session['warehouses'][0],
-            session.get('cardcode'),
-            docentry,
-            docnum
-        )
+        (session['username'], session['warehouses'][0], session.get('cardcode'), data.get('DocEntry'), data.get('DocNum'))
     )
-    conn.commit()
-    cur.close()
-    conn.close()
+    conn.commit(); cur.close(); conn.close()
 
-    return render_template(
-        'result.html',
-        success=True,
-        docnum=docnum,
-        docentry=docentry
-    )
+    return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
 
-
-# Historial de órdenes
 @app.route("/history")
 def history():
     if 'username' not in session:
@@ -269,35 +212,21 @@ def history():
     conn = get_db_connection(); cur = conn.cursor()
     if session.get('role') == 'manager':
         whs = session.get('warehouses', [])
-        if whs:
-            cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode = ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,))
-            rows = cur.fetchall()
-        else:
-            rows = []
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode = ANY(%s) ORDER BY timestamp DESC",
+            (whs,)
+        )
     else:
-        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],))
-        rows = cur.fetchall()
-    cur.close(); conn.close()
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC",
+            (session['username'],)
+        )
+    rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
-# Logout de usuarios
 @app.route("/logout")
 def logout():
     session.clear(); return redirect(url_for('login'))
 
-# Migración de contraseñas a Argon2id
-def migrate_passwords():
-    conn = get_db_connection(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT username, password FROM users WHERE active=TRUE")
-    users = cur.fetchall()
-    for u in users:
-        new_h = ph.hash(u['password'])
-        cur.execute("UPDATE users SET password=%s WHERE username=%s", (new_h, u['username']))
-    conn.commit(); cur.close(); conn.close(); print(f"Migrados {len(users)} usuarios.")
-
-# Entrada principal
 if __name__ == "__main__":
-    if os.getenv('MIGRATE') == '1':
-        migrate_passwords()
-    else:
-        app.run(debug=False, host='0.0.0.0', port=int(os.getenv('PORT', 5000)), ssl_context='adhoc')
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=False)
