@@ -215,17 +215,28 @@ def submit():
 
         # 2) Debug: trae metadata y loggea un snippet
         meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata")
+        meta_text = meta_get.text
+
+        # Busca el bloque EntitySet para Orders
+        start = meta_text.find('<EntitySet Name="Orders"')
+        end   = meta_text.find('</EntitySet>', start) + len('</EntitySet>')
+        orders_metadata = meta_text[start:end]
+
         app.logger.debug(
-            f"GET $metadata: {meta_get.status_code} — snippet:\n"
-            f"{meta_get.text[:1000]}"
-        )
+            f"GET $metadata EntitySet Orders (Insertable?):\n{orders_metadata}"
+)
 
         # 3) Debug: GET Orders para verificar acceso de lectura
         orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders")
+        # Diagnosticé que Orders no era insertable → probamos SalesOrders
+        app.logger.debug("Intentando POST a SalesOrders en lugar de Orders")
+        sl.headers.update({'Prefer': 'return=representation'})
+        resp = sl.post(f"{SERVICE_LAYER_URL}/SalesOrders", json=order)
         app.logger.debug(
-            f"GET Orders: {orders_get.status_code} — body:\n"
-            f"{orders_get.text[:300]}"
+            f"POST SalesOrders HTTP/{resp.status_code} — "
+            f"body: {resp.text[:300]}"
         )
+        resp.raise_for_status()
 
         # 4) Intento de creación (POST).
         #    Más adelante podrías cambiar '/Orders' por '/SalesOrders'
