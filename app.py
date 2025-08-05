@@ -40,8 +40,8 @@ ph = PasswordHasher(
 
 # Inicialización de Flask
 app = Flask(__name__)
-# Configuración de logging para DEBUG
-tlogging = logging.getLogger('werkzeug')
+# Logging en DEBUG
+dlogging = logging.getLogger('werkzeug')
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
@@ -132,15 +132,23 @@ def login():
                 session.permanent    = True
                 session['username']  = row['username']
                 session['role']      = row['role']
-                # Carga almacenes y cardcode
+                # Obtener almacenes del usuario
                 cur.execute(
-                    "SELECT whscode, cardcode FROM user_warehouses WHERE username=%s",
+                    "SELECT whscode FROM user_warehouses WHERE username=%s",
                     (user,)
                 )
                 whs = cur.fetchall()
+                session['warehouses'] = [w['whscode'] for w in whs]
+                # Obtener cardcode del primer almacén
                 if whs:
-                    session['warehouses'] = [w['whscode'] for w in whs]
-                    session['cardcode']   = whs[0]['cardcode']
+                    cur.execute(
+                        "SELECT cardcode FROM warehouses WHERE whscode=%s",
+                        (whs[0]['whscode'],)
+                    )
+                    w = cur.fetchone()
+                    session['cardcode'] = w['cardcode'] if w else None
+                else:
+                    session['cardcode'] = None
                 cur.close(); conn.close()
                 return redirect(url_for('dashboard'))
         else:
@@ -158,7 +166,6 @@ def dashboard():
     cur.close(); conn.close()
     return render_template('dashboard.html', username=session['username'], items=items)
 
-# Envío de órdenes a SAP con debug y cookies manuales
 @app.route("/submit", methods=["POST"])
 def submit():
     if 'username' not in session:
@@ -169,7 +176,7 @@ def submit():
         flash('Por favor selecciona una fecha para la orden.', 'error')
         return redirect(url_for('dashboard'))
 
-    # Construcción de líneas de documento
+    # Construcción de líneas
     lines = []
     for code, qty in zip(request.form.getlist('item_code'), request.form.getlist('quantity')):
         try:
@@ -182,29 +189,23 @@ def submit():
     order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
 
     try:
-        # 1) Login
+        # 1) Autenticación en Service Layer
         auth_resp = requests.post(
             f"{SERVICE_LAYER_URL}/Login",
             json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD},
             verify=False
         )
         auth_resp.raise_for_status()
-
-        # 2) Cookies manuales
+        # 2) Extraer cookies
         session_id = auth_resp.json().get('SessionId')
         cookies    = {'B1SESSION': session_id}
         route      = auth_resp.cookies.get('ROUTEID')
         if route:
             cookies['ROUTEID'] = route
         app.logger.debug('Cookies manuales a enviar: %s', cookies)
-
         # 3) Metadata debug
         meta_resp = requests.get(f"{SERVICE_LAYER_URL}/$metadata", cookies=cookies, verify=False)
-        meta_text = meta_resp.text
-        idx       = meta_text.find('Name="Orders"')
-        snippet   = meta_text[idx-200:idx+200] if idx >= 0 else '(Orders no encontrado)'
-        app.logger.debug('Metadata Orders EntitySet (±200 chars):\n%s', snippet)
-
+        app.logger.debug('Metadata Orders snippet: %s', meta_resp.text[:300])
         # 4) POST orden
         headers = {'Prefer': 'return=representation', 'Content-Type': 'application/json'}
         resp    = requests.post(
@@ -214,7 +215,7 @@ def submit():
             headers=headers,
             verify=False
         )
-        app.logger.debug('Response POST Orders %s — body: %s', resp.status_code, resp.text[:300])
+        app.logger.debug('Response POST Orders %s — %s', resp.status_code, resp.text[:300])
         resp.raise_for_status()
 
     except SSLError as e:
@@ -227,8 +228,8 @@ def submit():
         return redirect(url_for('dashboard'))
 
     # Guardar histórico
-    data = resp.json()
-    conn = get_db_connection(); cur = conn.cursor()
+    data    = resp.json()
+    conn    = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
@@ -237,6 +238,7 @@ def submit():
         (session['username'], session['warehouses'][0], session.get('cardcode'), data.get('DocEntry'), data.get('DocNum'))
     )
     conn.commit(); cur.close(); conn.close()
+
     return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
 
 @app.route("/history")
@@ -246,13 +248,9 @@ def history():
     conn = get_db_connection(); cur = conn.cursor()
     if session.get('role') == 'manager':
         whs = session.get('warehouses', [])
-        cur.execute(
-            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode=ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,)
-        )
+        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode=ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,))
     else:
-        cur.execute(
-            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],)
-        )
+        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],))
     rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
