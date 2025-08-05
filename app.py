@@ -12,6 +12,7 @@ from psycopg2.extras import RealDictCursor
 from flask_talisman import Talisman
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
+import logging
 
 # Se define ruta base para archivos de certificado
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,10 +40,11 @@ ph = PasswordHasher(
 
 # Inicialización de Flask
 app = Flask(__name__)
-# Configuración de logging para mostrar DEBUG en los logs
-import logging
+# Configuración de logging para DEBUG
+tlogging = logging.getLogger('werkzeug')
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
+
 # Configuración de cookies seguras
 app.config.update(
     SESSION_COOKIE_SECURE=True,
@@ -55,7 +57,6 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 csp = {
   'default-src': ["'self'"],
   'script-src':  ["'self'", 'cdnjs.cloudflare.com'],
-  # permitimos inline styles y Google Fonts
   'style-src':   ["'self'", "'unsafe-inline'", 'cdnjs.cloudflare.com', 'fonts.googleapis.com'],
   'font-src':    ["'self'", 'fonts.gstatic.com'],
   'img-src':     ["'self'", 'data:']
@@ -98,21 +99,21 @@ def get_db_connection():
         raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
     return psycopg2.connect(db_url, sslmode='require', cursor_factory=RealDictCursor)
 
-# Ruta raíz redirige a login
+# Rutas de la aplicación
 @app.route("/")
 def index():
     return redirect(url_for("login"))
 
-# Login de usuarios
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
         user = request.form.get("username")
-        pwd = request.form.get("password")
+        pwd  = request.form.get("password")
         conn = get_db_connection(); cur = conn.cursor()
         cur.execute(
-            "SELECT username, password AS hashed, role FROM users WHERE username=%s AND active=TRUE", (user,)
+            "SELECT username, password AS hashed, role"
+            " FROM users WHERE username=%s AND active=TRUE", (user,)
         )
         row = cur.fetchone()
         if row:
@@ -124,22 +125,38 @@ def login():
                 if ph.check_needs_rehash(row['hashed']):
                     new_hash = ph.hash(pwd)
                     cur.execute(
-                        "UPDATE users SET password=%s WHERE username=%s", (new_hash, user)
-                    ); conn.commit()
-                session.permanent = True
-                session['username'] = row['username']
-                session['role'] = row['role']
+                        "UPDATE users SET password=%s WHERE username=%s",
+                        (new_hash, user)
+                    )
+                    conn.commit()
+                session.permanent    = True
+                session['username']  = row['username']
+                session['role']      = row['role']
+                # Carga almacenes y cardcode
                 cur.execute(
-                    "SELECT whscode FROM user_warehouses WHERE username=%s", (user,)
+                    "SELECT whscode, cardcode FROM user_warehouses WHERE username=%s",
+                    (user,)
                 )
                 whs = cur.fetchall()
-                session['warehouses'] = [w['whscode'] for w in whs]
+                if whs:
+                    session['warehouses'] = [w['whscode'] for w in whs]
+                    session['cardcode']   = whs[0]['cardcode']
                 cur.close(); conn.close()
                 return redirect(url_for('dashboard'))
         else:
             error = "Credenciales inválidas."
         cur.close(); conn.close()
     return render_template('login.html', error=error)
+
+@app.route("/dashboard")
+def dashboard():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("SELECT itemcode, description FROM items_map")
+    items = cur.fetchall()
+    cur.close(); conn.close()
+    return render_template('dashboard.html', username=session['username'], items=items)
 
 # Envío de órdenes a SAP con debug y cookies manuales
 @app.route("/submit", methods=["POST"])
@@ -160,33 +177,20 @@ def submit():
         except ValueError:
             continue
         if qty_int > 0:
-            lines.append({
-                'ItemCode':      code,
-                'Quantity':      qty_int,
-                'WarehouseCode': session['warehouses'][0]
-            })
+            lines.append({'ItemCode': code, 'Quantity': qty_int, 'WarehouseCode': session['warehouses'][0]})
 
-    order = {
-        'CardCode':      session.get('cardcode'),
-        'DocDate':       date,
-        'DocDueDate':    date,
-        'DocumentLines': lines
-    }
+    order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
 
     try:
-        # 1) Autenticación Service Layer (login)
+        # 1) Login
         auth_resp = requests.post(
             f"{SERVICE_LAYER_URL}/Login",
-            json={
-                'CompanyDB': COMPANY_DB,
-                'UserName':  SL_USER,
-                'Password':  SL_PASSWORD
-            },
+            json={'CompanyDB': COMPANY_DB, 'UserName': SL_USER, 'Password': SL_PASSWORD},
             verify=False
         )
         auth_resp.raise_for_status()
 
-        # 2) Extracción manual de cookies
+        # 2) Cookies manuales
         session_id = auth_resp.json().get('SessionId')
         cookies    = {'B1SESSION': session_id}
         route      = auth_resp.cookies.get('ROUTEID')
@@ -194,18 +198,14 @@ def submit():
             cookies['ROUTEID'] = route
         app.logger.debug('Cookies manuales a enviar: %s', cookies)
 
-        # 3) Debug: validar metadata de Orders
-        meta_resp = requests.get(
-            f"{SERVICE_LAYER_URL}/$metadata",
-            cookies=cookies,
-            verify=False
-        )
+        # 3) Metadata debug
+        meta_resp = requests.get(f"{SERVICE_LAYER_URL}/$metadata", cookies=cookies, verify=False)
         meta_text = meta_resp.text
         idx       = meta_text.find('Name="Orders"')
         snippet   = meta_text[idx-200:idx+200] if idx >= 0 else '(Orders no encontrado)'
         app.logger.debug('Metadata Orders EntitySet (±200 chars):\n%s', snippet)
 
-        # 4) Envío de la orden con cookies y headers
+        # 4) POST orden
         headers = {'Prefer': 'return=representation', 'Content-Type': 'application/json'}
         resp    = requests.post(
             f"{SERVICE_LAYER_URL}/Orders",
@@ -221,44 +221,24 @@ def submit():
         app.logger.error(f"SSL error al conectar con SAP: {e}", exc_info=True)
         flash(f"SSL error detallado: {e}", 'error')
         return redirect(url_for('dashboard'))
-
     except RequestException as e:
         app.logger.error(f"Error conectando con SAP: {e}", exc_info=True)
         flash(f"Error conectando con SAP: {e}", 'error')
         return redirect(url_for('dashboard'))
 
-    # 5) Guardar histórico y renderizar resultado
-    data     = resp.json()
-    docnum   = data.get('DocNum')
-    docentry = data.get('DocEntry')
-
-    conn = get_db_connection()
-    cur  = conn.cursor()
+    # Guardar histórico
+    data = resp.json()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO recorded_orders (timestamp, username, whscode, cardcode, docentry, docnum)
         VALUES (NOW(), %s, %s, %s, %s, %s)
         """,
-        (
-            session['username'],
-            session['warehouses'][0],
-            session.get('cardcode'),
-            docentry,
-            docnum
-        )
+        (session['username'], session['warehouses'][0], session.get('cardcode'), data.get('DocEntry'), data.get('DocNum'))
     )
-    conn.commit()
-    cur.close()
-    conn.close()
+    conn.commit(); cur.close(); conn.close()
+    return render_template('result.html', success=True, docnum=data.get('DocNum'), docentry=data.get('DocEntry'))
 
-    return render_template(
-        'result.html',
-        success=True,
-        docnum=docnum,
-        docentry=docentry
-    )
-
-# Historial de órdenes
 @app.route("/history")
 def history():
     if 'username' not in session:
@@ -266,21 +246,20 @@ def history():
     conn = get_db_connection(); cur = conn.cursor()
     if session.get('role') == 'manager':
         whs = session.get('warehouses', [])
-        if whs:
-            cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode = ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,))
-            rows = cur.fetchall()
-        else:
-            rows = []
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE whscode=ANY(%s) ORDER BY timestamp DESC LIMIT 50", (whs,)
+        )
     else:
-        cur.execute("SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],))
-        rows = cur.fetchall()
-    cur.close(); conn.close()
+        cur.execute(
+            "SELECT timestamp, cardcode, whscode, docnum FROM recorded_orders WHERE username=%s ORDER BY timestamp DESC LIMIT 50", (session['username'],)
+        )
+    rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
 
-# Logout de usuarios
 @app.route("/logout")
 def logout():
-    session.clear(); return redirect(url_for('login'))
+    session.clear()
+    return redirect(url_for('login'))
 
 # Migración de contraseñas a Argon2id
 def migrate_passwords():
@@ -292,7 +271,6 @@ def migrate_passwords():
         cur.execute("UPDATE users SET password=%s WHERE username=%s", (new_h, u['username']))
     conn.commit(); cur.close(); conn.close(); print(f"Migrados {len(users)} usuarios.")
 
-# Entrada principal
 if __name__ == "__main__":
     if os.getenv('MIGRATE') == '1':
         migrate_passwords()
