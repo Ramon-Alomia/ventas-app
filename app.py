@@ -177,8 +177,6 @@ def submit():
         auth.raise_for_status()
         app.logger.debug(f"Cookies SL tras login: {sl.cookies.get_dict()}")
         sid = auth.json().get('SessionId'); route = auth.cookies.get('ROUTEID')
-        sl.cookies.clear(); sl.cookies.set('B1SESSION', sid, path='/')
-        if route: sl.cookies.set('ROUTEID', route, path='/')
         meta_get = sl.get(f"{SERVICE_LAYER_URL}/$metadata"); app.logger.debug(f"GET $metadata: {meta_get.status_code}")
         orders_get = sl.get(f"{SERVICE_LAYER_URL}/Orders"); app.logger.debug(f"GET Orders: {orders_get.status_code} body: {orders_get.text[:300]}")
         sl.headers.update({'Prefer': 'return=representation'})
