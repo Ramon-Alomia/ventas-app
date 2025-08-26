@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Administración</title>
+  <style>
+    :root { --font-primary: 'Montserrat', sans-serif; }
+    body {
+      font-family: var(--font-primary);
+      background: url("{{ url_for('static', filename='images/fondo.png') }}") no-repeat center/cover;
+      background-attachment: fixed;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      margin: 0;
+      min-height: 100vh;
+    }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; }
+    nav a { margin: 0 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Administración</h1>
+  <nav>
+    <a href="{{ url_for('dashboard') }}">Dashboard</a>|
+    <a href="{{ url_for('history') }}">Historial</a>|
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+  </nav>
+
+  <h2>Usuarios</h2>
+  <table>
+    <tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Almacenes</th><th>Acciones</th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.username }}</td>
+      <td>{{ u.role }}</td>
+      <td>{{ 'Sí' if u.active else 'No' }}</td>
+      <td>{{ u.warehouses|join(', ') }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          <input type="hidden" name="form_type" value="toggle_user">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <button type="submit">{{ 'Desactivar' if u.active else 'Activar' }}</button>
+        </form>
+        <form method="post" style="display:inline;">
+          <input type="hidden" name="form_type" value="update_user_wh">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <input type="text" name="warehouses" value="{{ u.warehouses|join(',') }}" placeholder="WH1,WH2">
+          <button type="submit">Actualizar WH</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Agregar Usuario</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="add_user">
+    Usuario: <input type="text" name="username" required>
+    Contraseña: <input type="password" name="password" required>
+    Rol: <input type="text" name="role" required>
+    Almacenes (coma): <input type="text" name="warehouses">
+    <button type="submit">Guardar</button>
+  </form>
+
+  <h2>Almacenes</h2>
+  <table>
+    <tr><th>WhsCode</th><th>CardCode</th><th>Nombre</th><th>Acciones</th></tr>
+    {% for w in warehouses %}
+    <tr>
+      <td>{{ w.whscode }}</td>
+      <td>{{ w.cardcode }}</td>
+      <td>{{ w.name }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          <input type="hidden" name="form_type" value="delete_wh">
+          <input type="hidden" name="whscode" value="{{ w.whscode }}">
+          <button type="submit">Eliminar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Agregar / Actualizar Almacén</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="add_wh">
+    WhsCode: <input type="text" name="whscode" required>
+    CardCode: <input type="text" name="cardcode" required>
+    Nombre: <input type="text" name="name" required>
+    <button type="submit">Guardar</button>
+  </form>
+</body>
+</html>

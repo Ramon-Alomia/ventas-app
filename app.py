@@ -168,7 +168,8 @@ def dashboard():
         'dashboard.html',
         username=session['username'],
         items=items,
-        warehouses=session.get('warehouses', [])
+        warehouses=session.get('warehouses', []),
+        role=session.get('role')
     )
 
 @app.route("/submit", methods=["POST"])
@@ -310,6 +311,75 @@ def history():
     
     rows = cur.fetchall(); cur.close(); conn.close()
     return render_template('history.html', rows=rows)
+
+@app.route("/admin", methods=["GET", "POST"])
+@roles_required('admin')
+def admin():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    conn = get_db_connection(); cur = conn.cursor()
+    if request.method == 'POST':
+        form_type = request.form.get('form_type')
+        if form_type == 'add_user':
+            username = request.form.get('username')
+            password = request.form.get('password')
+            role = request.form.get('role', 'user')
+            warehouses = [w.strip() for w in request.form.get('warehouses', '').split(',') if w.strip()]
+            hashed = ph.hash(password)
+            cur.execute(
+                "INSERT INTO users (username, password, role, active) VALUES (%s, %s, %s, TRUE)",
+                (username, hashed, role)
+            )
+            for wh in warehouses:
+                cur.execute(
+                    "INSERT INTO user_warehouses (username, whscode) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (username, wh)
+                )
+            conn.commit()
+        elif form_type == 'toggle_user':
+            username = request.form.get('username')
+            cur.execute("UPDATE users SET active = NOT active WHERE username=%s", (username,))
+            conn.commit()
+        elif form_type == 'update_user_wh':
+            username = request.form.get('username')
+            warehouses = [w.strip() for w in request.form.get('warehouses', '').split(',') if w.strip()]
+            cur.execute("DELETE FROM user_warehouses WHERE username=%s", (username,))
+            for wh in warehouses:
+                cur.execute(
+                    "INSERT INTO user_warehouses (username, whscode) VALUES (%s, %s)",
+                    (username, wh)
+                )
+            conn.commit()
+        elif form_type == 'add_wh':
+            whscode  = request.form.get('whscode')
+            cardcode = request.form.get('cardcode')
+            name     = request.form.get('name')
+            cur.execute(
+                """
+                INSERT INTO warehouses (whscode, cardcode, name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (whscode) DO UPDATE
+                SET cardcode=EXCLUDED.cardcode, name=EXCLUDED.name
+                """,
+                (whscode, cardcode, name)
+            )
+            conn.commit()
+        elif form_type == 'delete_wh':
+            whscode = request.form.get('whscode')
+            cur.execute("DELETE FROM user_warehouses WHERE whscode=%s", (whscode,))
+            cur.execute("DELETE FROM warehouses WHERE whscode=%s", (whscode,))
+            conn.commit()
+
+    cur.execute("SELECT username, role, active FROM users ORDER BY username")
+    users = cur.fetchall()
+    for u in users:
+        cur.execute("SELECT whscode FROM user_warehouses WHERE username=%s", (u['username'],))
+        whs = cur.fetchall()
+        u['warehouses'] = [w['whscode'] for w in whs]
+    cur.execute("SELECT whscode, cardcode, name FROM warehouses ORDER BY whscode")
+    warehouses = cur.fetchall()
+    cur.close(); conn.close()
+    return render_template('admin.html', users=users, warehouses=warehouses)
 
 @app.route("/logout")
 def logout():

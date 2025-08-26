@@ -101,9 +101,14 @@
 </head>
 
 <body>
-
-  <body>
-    <h1>Bienvenido, {{ username }}</h1>
+  <h1>Bienvenido, {{ username }}</h1>
+  <nav>
+      {% if role == 'admin' %}
+      <a href="{{ url_for('admin') }}">Administración</a> |
+      {% endif %}
+      <a href="{{ url_for('history') }}">Historial</a> |
+      <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+    </nav>
 
     <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
     {% with messages = get_flashed_messages(with_categories=true) %}
