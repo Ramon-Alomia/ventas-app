@@ -353,15 +353,15 @@ def admin():
         elif form_type == 'add_wh':
             whscode  = request.form.get('whscode')
             cardcode = request.form.get('cardcode')
-            name     = request.form.get('name')
+            whsdesc  = request.form.get('whsdesc')
             cur.execute(
                 """
-                INSERT INTO warehouses (whscode, cardcode, name)
+                INSERT INTO warehouses (whscode, cardcode, whsdesc)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (whscode) DO UPDATE
-                SET cardcode=EXCLUDED.cardcode, name=EXCLUDED.name
+                SET cardcode=EXCLUDED.cardcode, whsdesc=EXCLUDED.whsdesc
                 """,
-                (whscode, cardcode, name)
+                (whscode, cardcode, whsdesc)
             )
             conn.commit()
         elif form_type == 'delete_wh':
@@ -376,7 +376,7 @@ def admin():
         cur.execute("SELECT whscode FROM user_warehouses WHERE username=%s", (u['username'],))
         whs = cur.fetchall()
         u['warehouses'] = [w['whscode'] for w in whs]
-    cur.execute("SELECT whscode, cardcode, name FROM warehouses ORDER BY whscode")
+    cur.execute("SELECT whscode, cardcode, whsdesc FROM warehouses ORDER BY whscode")
     warehouses = cur.fetchall()
     cur.close(); conn.close()
     return render_template('admin.html', users=users, warehouses=warehouses)
