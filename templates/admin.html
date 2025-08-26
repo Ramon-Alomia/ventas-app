@@ -72,7 +72,7 @@
     <tr>
       <td>{{ w.whscode }}</td>
       <td>{{ w.cardcode }}</td>
-      <td>{{ w.name }}</td>
+      <td>{{ w.whsdesc }}</td>
       <td>
         <form method="post" style="display:inline;">
           <input type="hidden" name="form_type" value="delete_wh">
@@ -89,7 +89,7 @@
     <input type="hidden" name="form_type" value="add_wh">
     WhsCode: <input type="text" name="whscode" required>
     CardCode: <input type="text" name="cardcode" required>
-    Nombre: <input type="text" name="name" required>
+    Nombre: <input type="text" name="whsdesc" required>
     <button type="submit">Guardar</button>
   </form>
 </body>
