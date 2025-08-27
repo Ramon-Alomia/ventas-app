@@ -262,22 +262,25 @@ def submit():
     # Guardar histórico con selected_whs y cardcode calculado
     data = resp.json()
     conn_h = get_db_connection(); cur_h = conn_h.cursor()
-    cur_h.execute(
-        """
-        INSERT INTO recorded_orders (
-          timestamp, username, whscode, cardcode, docentry, docnum
-        ) VALUES (
-          NOW(), %s, %s, %s, %s, %s
+    for line in lines:
+        cur_h.execute(
+            """
+            INSERT INTO recorded_orders (
+              timestamp, username, whscode, cardcode, docentry, docnum, itemcode, quantity
+            ) VALUES (
+              NOW(), %s, %s, %s, %s, %s, %s, %s
+            )
+            """,
+            (
+                session['username'],
+                selected_whs,
+                cardcode,
+                data.get('DocEntry'),
+                data.get('DocNum'),
+                line['ItemCode'],
+                line['Quantity']
+            )
         )
-        """,
-        (
-            session['username'],
-            selected_whs,
-            cardcode,
-            data.get('DocEntry'),
-            data.get('DocNum')
-        )
-    )
     conn_h.commit(); cur_h.close(); conn_h.close()
     return render_template(
         'result.html',
@@ -290,27 +293,46 @@ def submit():
 def history():
     if 'username' not in session:
         return redirect(url_for('login'))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    whscode = request.args.getlist('whscode')
+    user_filter = request.args.getlist('username')
     conn = get_db_connection(); cur = conn.cursor()
     allowed = ('manager','admin','supervisor')
+    query = (
+        "SELECT timestamp, username, cardcode, whscode, docnum, itemcode, quantity "
+        "FROM recorded_orders WHERE 1=1"
+    )
+    params = []
     if session.get('role') in allowed:
-        # Ven todo el histórico
-        cur.execute(
-            "SELECT timestamp, username, cardcode, whscode, docnum "
-            "FROM recorded_orders "
-            "ORDER BY timestamp DESC LIMIT 50"
-        )
+        if user_filter:
+            query += " AND username = ANY(%s)"
+            params.append(user_filter)
     else:
-        # Sólo lo propio
-        cur.execute(
-            "SELECT timestamp, cardcode, whscode, docnum "
-            "FROM recorded_orders "
-            "WHERE username=%s "
-            "ORDER BY timestamp DESC LIMIT 50",
-            (session['username'],)
-        )
-    
-    rows = cur.fetchall(); cur.close(); conn.close()
-    return render_template('history.html', rows=rows)
+        query += " AND username=%s"
+        params.append(session['username'])
+    if start_date:
+        query += " AND timestamp::date >= %s"
+        params.append(start_date)
+    if end_date:
+        query += " AND timestamp::date <= %s"
+        params.append(end_date)
+    if whscode:
+        query += " AND whscode = ANY(%s)"
+        params.append(whscode)
+    query += " ORDER BY timestamp DESC LIMIT 100"
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.execute("SELECT whscode FROM warehouses ORDER BY whscode")
+    warehouses = [r['whscode'] for r in cur.fetchall()]
+    users_options = []
+    if session.get('role') in allowed:
+        cur.execute("SELECT username FROM users WHERE active=TRUE ORDER BY username")
+        users_options = [r['username'] for r in cur.fetchall()]
+    cur.close(); conn.close()
+    filters = {'start_date': start_date, 'end_date': end_date, 'whscode': whscode, 'username': user_filter}
+    return render_template('history.html', rows=rows, filters=filters, is_admin=session.get('role') in allowed,
+                           warehouses=warehouses, users_options=users_options)
 
 @app.route("/admin", methods=["GET", "POST"])
 @roles_required('admin')
