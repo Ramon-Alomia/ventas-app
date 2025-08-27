@@ -16,6 +16,7 @@
       <input type="date" name="end_date" value="{{ filters.end_date }}">
     </label>
     <label>Almacén
+codex/update-order-history-view-format-zxh0vb
       <select name="whscode" multiple>
         {% for wh in warehouses %}
         <option value="{{ wh }}" {% if wh in filters.whscode %}selected{% endif %}>{{ wh }}</option>
@@ -29,6 +30,7 @@
         <option value="{{ u }}" {% if u in filters.username %}selected{% endif %}>{{ u }}</option>
         {% endfor %}
       </select>
+main
     </label>
     {% endif %}
     <button type="submit">Filtrar</button>
@@ -41,7 +43,9 @@
         <th>Usuario</th>
         <th>Cliente (CardCode)</th>
         <th>Almacén</th>
+codex/update-order-history-view-format-zxh0vb
         <th>Doc SAP</th>
+main
         <th>Artículo</th>
         <th>Cantidad</th>
       </tr>
@@ -49,7 +53,9 @@
     <tbody>
     {% for r in rows %}
       <tr>
+codex/update-order-history-view-format-zxh0vb
         <td>{{ r['timestamp'].strftime('%d/%m/%Y %H:%M:%S') }}</td>
+main
         <td>{{ r['username'] }}</td>
         <td>{{ r['cardcode'] }}</td>
         <td>{{ r['whscode'] }}</td>
