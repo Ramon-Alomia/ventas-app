@@ -1,12 +1,13 @@
 import os
 from functools import wraps
+from flask_sqlalchemy import SQLAlchemy
 from datetime import timedelta
 from requests.exceptions import SSLError, RequestException
 import requests
 import psycopg2
 from flask import (
     Flask, render_template, request, redirect,
-    session, url_for, flash, abort
+    session, url_for, flash, abort, jsonify
 )
 from psycopg2.extras import RealDictCursor
 from flask_talisman import Talisman
@@ -43,6 +44,12 @@ app = Flask(__name__)
 # Logging en DEBUG
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
+
+# Configuración SQLAlchemy
+from models import db
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
 
 # Configuración de cookies seguras
 app.config.update(
@@ -160,7 +167,17 @@ def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT itemcode, description FROM items_map")
+    cur.execute(
+        """
+        SELECT DISTINCT i.itemcode, i.description
+        FROM items i
+        JOIN item_warehouse iw ON i.itemcode = iw.itemcode
+        JOIN user_warehouses uw ON uw.whscode = iw.whscode
+        WHERE uw.username = %s
+        ORDER BY i.itemcode
+        """,
+        (session['username'],),
+    )
     items = cur.fetchall()
     cur.close(); conn.close()
     # Envia también la lista de almacenes desde sesión
@@ -405,7 +422,7 @@ def admin():
             description = request.form.get('description')
             cur.execute(
                 """
-                INSERT INTO items_map (itemcode, description)
+                INSERT INTO items (itemcode, description)
                 VALUES (%s, %s)
                 ON CONFLICT (itemcode) DO UPDATE
                 SET description=EXCLUDED.description
@@ -415,7 +432,37 @@ def admin():
             conn.commit()
         elif form_type == 'delete_item':
             itemcode = request.form.get('itemcode')
-            cur.execute("DELETE FROM items_map WHERE itemcode=%s", (itemcode,))
+            cur.execute("DELETE FROM item_warehouse WHERE itemcode=%s", (itemcode,))
+            cur.execute("DELETE FROM items WHERE itemcode=%s", (itemcode,))
+            conn.commit()
+        elif form_type == 'assign_item_wh':
+            itemcode = request.form.get('itemcode')
+            whscode = request.form.get('whscode')
+            price = request.form.get('price')
+            min_stock = request.form.get('min_stock')
+            if whscode not in session.get('warehouses', []):
+                abort(403)
+            cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
+            if not cur.fetchone():
+                abort(400)
+            cur.execute(
+                """
+                INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (itemcode, whscode) DO UPDATE
+                SET price=EXCLUDED.price,
+                    min_stock=EXCLUDED.min_stock
+                """,
+                (itemcode, whscode, price or None, min_stock or None),
+            )
+            conn.commit()
+        elif form_type == 'delete_item_wh':
+            itemcode = request.form.get('itemcode')
+            whscode = request.form.get('whscode')
+            cur.execute(
+                "DELETE FROM item_warehouse WHERE itemcode=%s AND whscode=%s",
+                (itemcode, whscode),
+            )
             conn.commit()
 
     cur.execute("SELECT username, role, active FROM users ORDER BY username")
@@ -426,10 +473,206 @@ def admin():
         u['warehouses'] = [w['whscode'] for w in whs]
     cur.execute("SELECT whscode, cardcode, whsdesc FROM warehouses ORDER BY whscode")
     warehouses = cur.fetchall()
-    cur.execute("SELECT itemcode, description FROM items_map ORDER BY itemcode")
+    cur.execute(
+        """
+        SELECT i.itemcode, i.description,
+               COALESCE(
+                   json_agg(
+                       json_build_object(
+                           'whscode', iw.whscode,
+                           'price', iw.price,
+                           'min_stock', iw.min_stock
+                       ) ORDER BY iw.whscode
+                   ) FILTER (WHERE iw.whscode IS NOT NULL),
+                   '[]'
+               ) AS warehouses
+        FROM items i
+        LEFT JOIN item_warehouse iw ON i.itemcode = iw.itemcode
+        GROUP BY i.itemcode, i.description
+        ORDER BY i.itemcode
+        """
+    )
     items = cur.fetchall()
     cur.close(); conn.close()
     return render_template('admin.html', users=users, warehouses=warehouses, items=items)
+
+@app.route("/items", methods=["GET"])
+def get_items():
+    if 'username' not in session:
+        return abort(403)
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT i.itemcode, i.description, iw.whscode, iw.price, iw.min_stock
+        FROM items i
+        JOIN item_warehouse iw USING (itemcode)
+        JOIN user_warehouses uw ON uw.whscode = iw.whscode
+        WHERE uw.username = %s
+        """,
+        (session['username'],),
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    items = {}
+    for r in rows:
+        itm = items.setdefault(r['itemcode'], {
+            'itemcode': r['itemcode'],
+            'description': r['description'],
+            'warehouses': []
+        })
+        itm['warehouses'].append({
+            'whscode': r['whscode'],
+            'price': float(r['price']) if r['price'] is not None else None,
+            'min_stock': r['min_stock'],
+        })
+    return jsonify(list(items.values()))
+
+
+@app.route("/items/<itemcode>", methods=["GET"])
+def get_item(itemcode):
+    if 'username' not in session:
+        return abort(403)
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT i.itemcode, i.description, iw.whscode, iw.price, iw.min_stock
+        FROM items i
+        JOIN item_warehouse iw USING (itemcode)
+        JOIN user_warehouses uw ON uw.whscode = iw.whscode
+        WHERE uw.username = %s AND i.itemcode = %s
+        """,
+        (session['username'], itemcode),
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    if not rows:
+        return abort(404)
+    item = {
+        'itemcode': rows[0]['itemcode'],
+        'description': rows[0]['description'],
+        'warehouses': []
+    }
+    for r in rows:
+        item['warehouses'].append({
+            'whscode': r['whscode'],
+            'price': float(r['price']) if r['price'] is not None else None,
+            'min_stock': r['min_stock'],
+        })
+    return jsonify(item)
+
+
+@app.route("/warehouses/<whscode>/items", methods=["GET"])
+def items_by_wh(whscode):
+    if 'username' not in session:
+        return abort(403)
+    if whscode not in session.get('warehouses', []):
+        return abort(403)
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT i.itemcode, i.description, iw.price, iw.min_stock
+        FROM item_warehouse iw
+        JOIN items i ON i.itemcode = iw.itemcode
+        WHERE iw.whscode = %s
+        """,
+        (whscode,),
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return jsonify([
+        {
+            'itemcode': r['itemcode'],
+            'description': r['description'],
+            'price': float(r['price']) if r['price'] is not None else None,
+            'min_stock': r['min_stock'],
+        }
+        for r in rows
+    ])
+
+
+@app.route("/items", methods=["POST", "PUT"])
+@roles_required('admin')
+def upsert_item():
+    if 'username' not in session:
+        return abort(403)
+    data = request.get_json(force=True)
+    itemcode = data.get('itemcode')
+    description = data.get('description')
+    if not itemcode or not description:
+        return abort(400)
+    warehouses = data.get('warehouses', [])
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO items (itemcode, description)
+        VALUES (%s, %s)
+        ON CONFLICT (itemcode) DO UPDATE
+        SET description = EXCLUDED.description
+        """,
+        (itemcode, description),
+    )
+    for w in warehouses:
+        whscode = w.get('whscode')
+        price = w.get('price')
+        min_stock = w.get('min_stock')
+        if whscode is None:
+            continue
+        if whscode not in session.get('warehouses', []):
+            cur.close(); conn.close(); return abort(403)
+        cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
+        if not cur.fetchone():
+            cur.close(); conn.close(); return abort(400)
+        if price is not None and float(price) < 0:
+            cur.close(); conn.close(); return abort(400)
+        if min_stock is not None and int(min_stock) < 0:
+            cur.close(); conn.close(); return abort(400)
+        cur.execute(
+            """
+            INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (itemcode, whscode) DO UPDATE
+            SET price=EXCLUDED.price,
+                min_stock=EXCLUDED.min_stock
+            """,
+            (itemcode, whscode, price, min_stock),
+        )
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({'status': 'ok'})
+
+
+@app.route("/warehouses/<whscode>/items", methods=["POST", "PUT"])
+@roles_required('admin')
+def upsert_item_wh(whscode):
+    if 'username' not in session:
+        return abort(403)
+    if whscode not in session.get('warehouses', []):
+        return abort(403)
+    data = request.get_json(force=True)
+    itemcode = data.get('itemcode')
+    price = data.get('price')
+    min_stock = data.get('min_stock')
+    if not itemcode:
+        return abort(400)
+    if price is not None and float(price) < 0:
+        return abort(400)
+    if min_stock is not None and int(min_stock) < 0:
+        return abort(400)
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
+    if not cur.fetchone():
+        cur.close(); conn.close(); return abort(400)
+    cur.execute(
+        """
+        INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (itemcode, whscode) DO UPDATE
+        SET price=EXCLUDED.price,
+            min_stock=EXCLUDED.min_stock
+        """,
+        (itemcode, whscode, price, min_stock),
+    )
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({'status': 'ok'})
 
 @app.route("/logout")
 def logout():

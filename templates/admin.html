@@ -67,7 +67,7 @@
 
   <h2>Almacenes</h2>
   <table>
-    <tr><th>WhsCode</th><th>CardCode</th><th>Nombre</th><th>Acciones</th></tr>
+        <tr><th>WhsCode</th><th>CardCode</th><th>Nombre</th><th>Acciones</th></tr>
     {% for w in warehouses %}
     <tr>
       <td>{{ w.whscode }}</td>
@@ -93,13 +93,18 @@
     <button type="submit">Guardar</button>
   </form>
 
-  <h2>Items Map</h2>
+  <h2>Items</h2>
   <table>
-    <tr><th>ItemCode</th><th>Descripción</th><th>Acciones</th></tr>
+    <tr><th>ItemCode</th><th>Descripción</th><th>Almacenes</th><th>Acciones</th></tr>
     {% for i in items %}
     <tr>
       <td>{{ i.itemcode }}</td>
       <td>{{ i.description }}</td>
+      <td>
+        {% for w in i.warehouses %}
+          {{ w.whscode }} ({{ w.price }} / {{ w.min_stock }}){% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </td>
       <td>
         <form method="post" style="display:inline;">
           <input type="hidden" name="form_type" value="delete_item">
@@ -118,5 +123,24 @@
     Descripción: <input type="text" name="description" required>
     <button type="submit">Guardar</button>
   </form>
+
+  <h3>Asignar Item a Almacén</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="assign_item_wh">
+    ItemCode: <input type="text" name="itemcode" required>
+    WhsCode: <input type="text" name="whscode" required>
+    Precio: <input type="number" step="0.01" name="price">
+    Stock Mínimo: <input type="number" name="min_stock">
+    <button type="submit">Guardar</button>
+  </form>
+
+  <h3>Eliminar Item de Almacén</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="delete_item_wh">
+    ItemCode: <input type="text" name="itemcode" required>
+    WhsCode: <input type="text" name="whscode" required>
+    <button type="submit">Eliminar</button>
+  </form>
 </body>
 </html>
+templates/history.html
