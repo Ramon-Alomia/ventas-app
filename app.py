@@ -317,6 +317,15 @@ def history():
     whscode = request.args.getlist('whscode')
     user_filter = request.args.getlist('username')
 
+    # Algunos navegadores/envíos front-end mandan "None" como texto cuando no se
+    # selecciona una fecha. Esto provocaba que la consulta intentara convertir
+    # la cadena "None" a DATE generando un error 500. Normalizamos estos valores
+    # para tratarlos como si no se hubiese enviado nada.
+    if not start_date or str(start_date).lower() == 'none':
+        start_date = None
+    if not end_date or str(end_date).lower() == 'none':
+        end_date = None
+
     conn = get_db_connection(); cur = conn.cursor()
     allowed = ('manager', 'admin', 'supervisor')
     query = (
@@ -371,6 +380,13 @@ def export_history():
     end_date = request.args.get('end_date')
     whscode = request.args.getlist('whscode')
     user_filter = request.args.getlist('username')
+    
+    # Normalizar valores "None" enviados como texto desde el front-end
+    # para evitar errores de conversión de fecha.
+    if not start_date or str(start_date).lower() == 'none':
+        start_date = None
+    if not end_date or str(end_date).lower() == 'none':
+        end_date = None
 
     conn = get_db_connection(); cur = conn.cursor()
     allowed = ('manager', 'admin', 'supervisor')
