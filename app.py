@@ -494,6 +494,23 @@ def admin():
             cur.execute("DELETE FROM item_warehouse WHERE itemcode=%s", (itemcode,))
             cur.execute("DELETE FROM items WHERE itemcode=%s", (itemcode,))
             conn.commit()
+        elif form_type == 'assign_item_wh':
+            itemcode = request.form.get('itemcode')
+            whscode = request.form.get('whscode')
+            if whscode not in session.get('warehouses', []):
+                abort(403)
+            cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
+            if not cur.fetchone():
+                abort(400)
+            cur.execute(
+                """
+                INSERT INTO item_warehouse (itemcode, whscode)
+                VALUES (%s, %s)
+                ON CONFLICT (itemcode, whscode) DO NOTHING
+                """,
+                (itemcode, whscode),
+            )
+            conn.commit()
         elif form_type == 'delete_item_wh':
             itemcode = request.form.get('itemcode')
             whscode = request.form.get('whscode')

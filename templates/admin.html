@@ -121,7 +121,14 @@
     <input type="hidden" name="form_type" value="add_item">
     ItemCode: <input type="text" name="itemcode" required>
     Descripción: <input type="text" name="description" required>
-    WhsC: <input type="text" name="whs_codes" placeholder="CNT01,HTLSDS">
+    <button type="submit">Guardar</button>
+  </form>
+
+  <h3>Asignar Item a Almacén</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="assign_item_wh">
+    ItemCode: <input type="text" name="itemcode" required>
+    WhsCode: <input type="text" name="whscode" required>
     <button type="submit">Guardar</button>
   </form>
 
