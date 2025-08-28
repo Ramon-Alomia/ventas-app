@@ -295,13 +295,11 @@ def history():
         return redirect(url_for('login'))
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    codex/update-order-history-view-format-zxh0vb
     whscode = request.args.getlist('whscode')
     user_filter = request.args.getlist('username')
 
-main
     conn = get_db_connection(); cur = conn.cursor()
-    allowed = ('manager','admin','supervisor')
+    allowed = ('manager', 'admin', 'supervisor')
     query = (
         "SELECT timestamp, username, cardcode, whscode, docnum, itemcode, quantity "
         "FROM recorded_orders WHERE 1=1"
@@ -309,9 +307,7 @@ main
     params = []
     if session.get('role') in allowed:
         if user_filter:
-    codex/update-order-history-view-format-zxh0vb
             query += " AND username = ANY(%s)"
-main
             params.append(user_filter)
     else:
         query += " AND username=%s"
@@ -323,12 +319,13 @@ main
         query += " AND timestamp::date <= %s"
         params.append(end_date)
     if whscode:
-   codex/update-order-history-view-format-zxh0vb
         query += " AND whscode = ANY(%s)"
         params.append(whscode)
     query += " ORDER BY timestamp DESC LIMIT 100"
     cur.execute(query, params)
-    rows = cur.fetchall()
+    rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r['timestamp'] = r['timestamp'].strftime('%d/%m/%Y %H:%M:%S')
     cur.execute("SELECT whscode FROM warehouses ORDER BY whscode")
     warehouses = [r['whscode'] for r in cur.fetchall()]
     users_options = []
@@ -337,9 +334,14 @@ main
         users_options = [r['username'] for r in cur.fetchall()]
     cur.close(); conn.close()
     filters = {'start_date': start_date, 'end_date': end_date, 'whscode': whscode, 'username': user_filter}
-    return render_template('history.html', rows=rows, filters=filters, is_admin=session.get('role') in allowed,
-                           warehouses=warehouses, users_options=users_options)
-main
+    return render_template(
+        'history.html',
+        rows=rows,
+        filters=filters,
+        is_admin=session.get('role') in allowed,
+        warehouses=warehouses,
+        users_options=users_options,
+    )
 
 @app.route("/admin", methods=["GET", "POST"])
 @roles_required('admin')
