@@ -438,8 +438,6 @@ def admin():
         elif form_type == 'assign_item_wh':
             itemcode = request.form.get('itemcode')
             whscode = request.form.get('whscode')
-            price = request.form.get('price')
-            min_stock = request.form.get('min_stock')
             if whscode not in session.get('warehouses', []):
                 abort(403)
             cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
@@ -447,13 +445,11 @@ def admin():
                 abort(400)
             cur.execute(
                 """
-                INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (itemcode, whscode) DO UPDATE
-                SET price=EXCLUDED.price,
-                    min_stock=EXCLUDED.min_stock
+                INSERT INTO item_warehouse (itemcode, whscode)
+                VALUES (%s, %s)
+                ON CONFLICT (itemcode, whscode) DO NOTHING
                 """,
-                (itemcode, whscode, price or None, min_stock or None),
+                (itemcode, whscode),
             )
             conn.commit()
         elif form_type == 'delete_item_wh':
@@ -478,11 +474,7 @@ def admin():
         SELECT i.itemcode, i.description,
                COALESCE(
                    json_agg(
-                       json_build_object(
-                           'whscode', iw.whscode,
-                           'price', iw.price,
-                           'min_stock', iw.min_stock
-                       ) ORDER BY iw.whscode
+                       json_build_object('whscode', iw.whscode) ORDER BY iw.whscode
                    ) FILTER (WHERE iw.whscode IS NOT NULL),
                    '[]'
                ) AS warehouses
@@ -503,7 +495,7 @@ def get_items():
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
-        SELECT i.itemcode, i.description, iw.whscode, iw.price, iw.min_stock
+        SELECT i.itemcode, i.description, iw.whscode
         FROM items i
         JOIN item_warehouse iw USING (itemcode)
         JOIN user_warehouses uw ON uw.whscode = iw.whscode
@@ -520,11 +512,7 @@ def get_items():
             'description': r['description'],
             'warehouses': []
         })
-        itm['warehouses'].append({
-            'whscode': r['whscode'],
-            'price': float(r['price']) if r['price'] is not None else None,
-            'min_stock': r['min_stock'],
-        })
+        itm['warehouses'].append({'whscode': r['whscode']})
     return jsonify(list(items.values()))
 
 
@@ -535,7 +523,7 @@ def get_item(itemcode):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
-        SELECT i.itemcode, i.description, iw.whscode, iw.price, iw.min_stock
+        SELECT i.itemcode, i.description, iw.whscode
         FROM items i
         JOIN item_warehouse iw USING (itemcode)
         JOIN user_warehouses uw ON uw.whscode = iw.whscode
@@ -553,11 +541,7 @@ def get_item(itemcode):
         'warehouses': []
     }
     for r in rows:
-        item['warehouses'].append({
-            'whscode': r['whscode'],
-            'price': float(r['price']) if r['price'] is not None else None,
-            'min_stock': r['min_stock'],
-        })
+        item['warehouses'].append({'whscode': r['whscode']})
     return jsonify(item)
 
 
@@ -570,7 +554,7 @@ def items_by_wh(whscode):
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
         """
-        SELECT i.itemcode, i.description, iw.price, iw.min_stock
+        SELECT i.itemcode, i.description
         FROM item_warehouse iw
         JOIN items i ON i.itemcode = iw.itemcode
         WHERE iw.whscode = %s
@@ -582,9 +566,7 @@ def items_by_wh(whscode):
     return jsonify([
         {
             'itemcode': r['itemcode'],
-            'description': r['description'],
-            'price': float(r['price']) if r['price'] is not None else None,
-            'min_stock': r['min_stock'],
+            'description': r['description']
         }
         for r in rows
     ])
@@ -613,8 +595,6 @@ def upsert_item():
     )
     for w in warehouses:
         whscode = w.get('whscode')
-        price = w.get('price')
-        min_stock = w.get('min_stock')
         if whscode is None:
             continue
         if whscode not in session.get('warehouses', []):
@@ -622,19 +602,13 @@ def upsert_item():
         cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
         if not cur.fetchone():
             cur.close(); conn.close(); return abort(400)
-        if price is not None and float(price) < 0:
-            cur.close(); conn.close(); return abort(400)
-        if min_stock is not None and int(min_stock) < 0:
-            cur.close(); conn.close(); return abort(400)
         cur.execute(
             """
-            INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (itemcode, whscode) DO UPDATE
-            SET price=EXCLUDED.price,
-                min_stock=EXCLUDED.min_stock
+            INSERT INTO item_warehouse (itemcode, whscode)
+            VALUES (%s, %s)
+            ON CONFLICT (itemcode, whscode) DO NOTHING
             """,
-            (itemcode, whscode, price, min_stock),
+            (itemcode, whscode),
         )
     conn.commit(); cur.close(); conn.close()
     return jsonify({'status': 'ok'})
@@ -649,13 +623,7 @@ def upsert_item_wh(whscode):
         return abort(403)
     data = request.get_json(force=True)
     itemcode = data.get('itemcode')
-    price = data.get('price')
-    min_stock = data.get('min_stock')
     if not itemcode:
-        return abort(400)
-    if price is not None and float(price) < 0:
-        return abort(400)
-    if min_stock is not None and int(min_stock) < 0:
         return abort(400)
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute("SELECT 1 FROM warehouses WHERE whscode=%s", (whscode,))
@@ -663,13 +631,11 @@ def upsert_item_wh(whscode):
         cur.close(); conn.close(); return abort(400)
     cur.execute(
         """
-        INSERT INTO item_warehouse (itemcode, whscode, price, min_stock)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (itemcode, whscode) DO UPDATE
-        SET price=EXCLUDED.price,
-            min_stock=EXCLUDED.min_stock
+        INSERT INTO item_warehouse (itemcode, whscode)
+        VALUES (%s, %s)
+        ON CONFLICT (itemcode, whscode) DO NOTHING
         """,
-        (itemcode, whscode, price, min_stock),
+        (itemcode, whscode),
     )
     conn.commit(); cur.close(); conn.close()
     return jsonify({'status': 'ok'})
