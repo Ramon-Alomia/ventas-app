@@ -400,6 +400,23 @@ def admin():
             cur.execute("DELETE FROM user_warehouses WHERE whscode=%s", (whscode,))
             cur.execute("DELETE FROM warehouses WHERE whscode=%s", (whscode,))
             conn.commit()
+        elif form_type == 'add_item':
+            itemcode = request.form.get('itemcode')
+            description = request.form.get('description')
+            cur.execute(
+                """
+                INSERT INTO items_map (itemcode, description)
+                VALUES (%s, %s)
+                ON CONFLICT (itemcode) DO UPDATE
+                SET description=EXCLUDED.description
+                """,
+                (itemcode, description),
+            )
+            conn.commit()
+        elif form_type == 'delete_item':
+            itemcode = request.form.get('itemcode')
+            cur.execute("DELETE FROM items_map WHERE itemcode=%s", (itemcode,))
+            conn.commit()
 
     cur.execute("SELECT username, role, active FROM users ORDER BY username")
     users = cur.fetchall()
@@ -409,8 +426,10 @@ def admin():
         u['warehouses'] = [w['whscode'] for w in whs]
     cur.execute("SELECT whscode, cardcode, whsdesc FROM warehouses ORDER BY whscode")
     warehouses = cur.fetchall()
+    cur.execute("SELECT itemcode, description FROM items_map ORDER BY itemcode")
+    items = cur.fetchall()
     cur.close(); conn.close()
-    return render_template('admin.html', users=users, warehouses=warehouses)
+    return render_template('admin.html', users=users, warehouses=warehouses, items=items)
 
 @app.route("/logout")
 def logout():

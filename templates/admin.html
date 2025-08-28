@@ -92,5 +92,31 @@
     Nombre: <input type="text" name="whsdesc" required>
     <button type="submit">Guardar</button>
   </form>
+
+  <h2>Items Map</h2>
+  <table>
+    <tr><th>ItemCode</th><th>Descripción</th><th>Acciones</th></tr>
+    {% for i in items %}
+    <tr>
+      <td>{{ i.itemcode }}</td>
+      <td>{{ i.description }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          <input type="hidden" name="form_type" value="delete_item">
+          <input type="hidden" name="itemcode" value="{{ i.itemcode }}">
+          <button type="submit">Eliminar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Agregar / Actualizar Item</h3>
+  <form method="post">
+    <input type="hidden" name="form_type" value="add_item">
+    ItemCode: <input type="text" name="itemcode" required>
+    Descripción: <input type="text" name="description" required>
+    <button type="submit">Guardar</button>
+  </form>
 </body>
 </html>
