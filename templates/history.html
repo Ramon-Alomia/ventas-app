@@ -67,6 +67,17 @@
     </tbody>
   </table>
   </div>
+  <form method="get" action="{{ url_for('export_history') }}">
+    <input type="hidden" name="start_date" value="{{ filters.start_date }}">
+    <input type="hidden" name="end_date" value="{{ filters.end_date }}">
+    {% for w in filters.whscode %}
+    <input type="hidden" name="whscode" value="{{ w }}">
+    {% endfor %}
+    {% for u in filters.username %}
+    <input type="hidden" name="username" value="{{ u }}">
+    {% endfor %}
+    <button type="submit">Exportar a Excel</button>
+  </form>
   <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/multiple-select/1.5.2/multiple-select.min.js"></script>

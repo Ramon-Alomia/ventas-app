@@ -13,6 +13,4 @@ class ItemWarehouse(db.Model):
         db.ForeignKey("warehouses.whscode", onupdate="CASCADE", ondelete="RESTRICT"),
         primary_key=True,
     )
-    price = db.Column(db.Numeric(12, 2))
-    min_stock = db.Column(db.Integer)
     item = db.relationship("Item", back_populates="warehouses")

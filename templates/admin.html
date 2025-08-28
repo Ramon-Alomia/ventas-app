@@ -102,7 +102,7 @@
       <td>{{ i.description }}</td>
       <td>
         {% for w in i.warehouses %}
-          {{ w.whscode }} ({{ w.price }} / {{ w.min_stock }}){% if not loop.last %}, {% endif %}
+          {{ w.whscode }}{% if not loop.last %}, {% endif %}
         {% endfor %}
       </td>
       <td>
@@ -116,21 +116,12 @@
     {% endfor %}
   </table>
 
-  <h3>Agregar / Actualizar Item</h3>
+  <h3>Agregar / Actualizar Item y Almacenes</h3>
   <form method="post">
     <input type="hidden" name="form_type" value="add_item">
     ItemCode: <input type="text" name="itemcode" required>
     Descripción: <input type="text" name="description" required>
-    <button type="submit">Guardar</button>
-  </form>
-
-  <h3>Asignar Item a Almacén</h3>
-  <form method="post">
-    <input type="hidden" name="form_type" value="assign_item_wh">
-    ItemCode: <input type="text" name="itemcode" required>
-    WhsCode: <input type="text" name="whscode" required>
-    Precio: <input type="number" step="0.01" name="price">
-    Stock Mínimo: <input type="number" name="min_stock">
+    WhsC: <input type="text" name="whs_codes" placeholder="CNT01,HTLSDS">
     <button type="submit">Guardar</button>
   </form>
 
@@ -143,4 +134,3 @@
   </form>
 </body>
 </html>
-templates/history.html
