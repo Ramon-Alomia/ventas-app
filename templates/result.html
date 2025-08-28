@@ -93,9 +93,9 @@
 
 <body>
   {% if success %}
-  <h2>✅ Orden creada con éxito</h2>
-  <p><strong>Número de documento (DocNum):</strong> {{ docnum }}</p>
-  <p><small>(ID interno DocEntry: {{ docentry }})</small></p>
+    <h2>✅ Orden creada con éxito</h2>
+    <p><strong>Doc SAP:</strong> {{ docnum }}</p>
+    <p><small>(ID interno DocEntry: {{ docentry }})</small></p>
   {% else %}
   <h2>❌ Error al crear la orden</h2>
   <pre>{{ error }}</pre>
