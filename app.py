@@ -147,8 +147,9 @@ def refresh_user_warehouses():
     cur.close(); conn.close()
     warehouses = {}
     for r in rows:
-        warehouses.setdefault(r['whscode'], []).append({
-            'cardcode': r['cardcode'],
+        wh = r['whscode'].strip()
+        warehouses.setdefault(wh, []).append({
+            'cardcode': r['cardcode'].strip(),
             'whsdesc': r['whsdesc']
         })
     session['warehouses'] = list(warehouses.keys())
@@ -216,11 +217,11 @@ def submit():
         return redirect(url_for('dashboard'))
 
     # Construcción de líneas
-    selected_whs = request.form.get('warehouse')
+    selected_whs = request.form.get('warehouse', '').strip()
     if not selected_whs:
         flash('Por favor selecciona un almacén.', 'error')
         return redirect(url_for('dashboard'))
-    cardcode = request.form.get('cardcode')
+    cardcode = request.form.get('cardcode', '').strip()
     allowed_cards = [c['cardcode'] for c in session.get('warehouse_cards', {}).get(selected_whs, [])]
     if cardcode not in allowed_cards:
         flash('Almacén o cliente inválido.', 'error')
@@ -634,6 +635,7 @@ def get_item(itemcode):
 def items_by_wh(whscode):
     if 'username' not in session:
         return abort(403)
+    whscode = whscode.strip()
     if whscode not in session.get('warehouses', []):
         return abort(403)
     conn = get_db_connection(); cur = conn.cursor()
@@ -642,7 +644,7 @@ def items_by_wh(whscode):
         SELECT i.itemcode, i.description
         FROM item_warehouse iw
         JOIN items i ON i.itemcode = iw.itemcode
-        WHERE iw.whscode = %s
+        WHERE TRIM(iw.whscode) = %s
         """,
         (whscode,),
     )
