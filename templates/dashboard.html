@@ -157,13 +157,13 @@
           <th>Cantidad</th>
           <th>Acción</th>
         </tr>
-        <tr class="line">
-          <td>
-            <select name="item_code" required disabled>
-              <option value="" disabled selected>Selecciona un menú…</option>
-            </select>
-          </td>
-          <td>
+          <tr class="line">
+            <td>
+              <select name="item_code" required>
+                <option value="" disabled selected>Selecciona un menú…</option>
+              </select>
+            </td>
+            <td>
             <input type="number" name="quantity" min="1" required
               oninvalid="this.setCustomValidity('Introduce una cantidad mayor a cero')"
               oninput="this.setCustomValidity('')" />

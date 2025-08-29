@@ -16,7 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
       opt.textContent = it.description;
       sel.appendChild(opt);
     });
-    sel.disabled = currentItems.length === 0;
+
+    if (currentItems.length > 0) {
+      sel.disabled = false;
+      sel.removeAttribute('disabled');
+    } else {
+      sel.disabled = true;
+    }
   }
 
   function updateItemSelects() {
