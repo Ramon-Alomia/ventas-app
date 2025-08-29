@@ -134,19 +134,21 @@
 
       <!-- WAREHOUSE: Selección de almacén según sesión -->
       <label>Almacén:<br>
-        {% if warehouses|length > 1 %}
+        {% set wh_list = warehouses.keys()|list %}
+        {% if wh_list|length > 1 %}
           <select name="warehouse" id="warehouse" required>
             <option value="" disabled selected>Selecciona un almacén…</option>
-            {% for wh in warehouses %}
+            {% for wh in wh_list %}
               <option value="{{ wh }}">{{ wh }}</option>
             {% endfor %}
           </select>
         {% else %}
           {# Si sólo hay uno, ocultamos el select y enviamos valor fijo #}
-          <input type="hidden" name="warehouse" value="{{ warehouses[0] or '' }}">
-          <strong>{{ warehouses[0] or '—' }}</strong>
+          <input type="hidden" name="warehouse" id="warehouse" value="{{ wh_list[0] or '' }}">
+          <strong>{{ wh_list[0] or '—' }}</strong>
         {% endif %}
       </label>
+      <div id="cardcode-container"></div>
       <br><br>
       
       <table id="lines">
@@ -157,13 +159,8 @@
         </tr>
         <tr class="line">
           <td>
-            <select name="item_code" required>
+            <select name="item_code" required disabled>
               <option value="" disabled selected>Selecciona un menú…</option>
-              {% for item in items %}
-              <option value="{{ item['itemcode'] }}">
-                {{ item['description'] }}
-              </option>
-              {% endfor %}
             </select>
           </td>
           <td>
@@ -190,33 +187,7 @@
     </p>
 
 
-    <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        const table = document.getElementById('lines');
-        const addBtn = document.getElementById('addLine');
-        console.log('table:', table, 'addBtn:', addBtn);
-
-        if (!table || !addBtn) {
-          console.error('No se encontró #lines o #addLine en el DOM');
-          return;
-        }
-
-        addBtn.addEventListener('click', () => {
-          const first = table.querySelector('.line');
-          console.log('clonando línea:', first);
-          if (!first) {
-            console.error('No se encontró ninguna fila .line para clonar');
-            return;
-          }
-          const clone = first.cloneNode(true);
-          clone.querySelector('input[name="quantity"]').value = '';
-          clone.querySelector('select[name="item_code"]').selectedIndex = 0;
-          table.appendChild(clone);
-        });
-      });
-    </script>
-
-
+    <script id="warehousesData" type="application/json">{{ warehouses | tojson }}</script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
   </body>
 

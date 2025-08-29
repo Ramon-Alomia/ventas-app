@@ -125,6 +125,35 @@ def ensure_user_is_active():
         flash('Tu usuario ha sido desactivado.', 'error')
         return redirect(url_for('login'))
 
+@app.before_request
+def refresh_user_warehouses():
+    if request.endpoint in ('login', 'static'):
+        return
+    username = session.get('username')
+    if not username:
+        return
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT w.whscode, w.cardcode, w.whsdesc
+        FROM user_warehouses uw
+        JOIN warehouses w ON w.whscode = uw.whscode
+        WHERE uw.username = %s
+        ORDER BY w.whscode, w.cardcode
+        """,
+        (username,)
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    warehouses = {}
+    for r in rows:
+        warehouses.setdefault(r['whscode'], []).append({
+            'cardcode': r['cardcode'],
+            'whsdesc': r['whsdesc']
+        })
+    session['warehouses'] = list(warehouses.keys())
+    session['warehouse_cards'] = warehouses
+
 # Rutas de la aplicación
 @app.route("/")
 def index():
@@ -155,26 +184,9 @@ def login():
                         (new_hash, user)
                     )
                     conn.commit()
-                session.permanent    = True
-                session['username']  = row['username']
-                session['role']      = row['role']
-                # Obtener almacenes del usuario
-                cur.execute(
-                    "SELECT whscode FROM user_warehouses WHERE username=%s",
-                    (user,)
-                )
-                whs = cur.fetchall()
-                session['warehouses'] = [w['whscode'] for w in whs]
-                # Obtener cardcode del primer almacén
-                if whs:
-                    cur.execute(
-                        "SELECT cardcode FROM warehouses WHERE whscode=%s",
-                        (whs[0]['whscode'],)
-                    )
-                    w = cur.fetchone()
-                    session['cardcode'] = w['cardcode'] if w else None
-                else:
-                    session['cardcode'] = None
+                session.permanent   = True
+                session['username'] = row['username']
+                session['role']     = row['role']
                 cur.close(); conn.close()
                 return redirect(url_for('dashboard'))
         else:
@@ -186,26 +198,10 @@ def login():
 def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT DISTINCT i.itemcode, i.description
-        FROM items i
-        JOIN item_warehouse iw ON i.itemcode = iw.itemcode
-        JOIN user_warehouses uw ON uw.whscode = iw.whscode
-        WHERE uw.username = %s
-        ORDER BY i.itemcode
-        """,
-        (session['username'],),
-    )
-    items = cur.fetchall()
-    cur.close(); conn.close()
-    # Envia también la lista de almacenes desde sesión
     return render_template(
         'dashboard.html',
         username=session['username'],
-        items=items,
-        warehouses=session.get('warehouses', []),
+        warehouses=session.get('warehouse_cards', {}),
         role=session.get('role')
     )
 
@@ -220,17 +216,15 @@ def submit():
         return redirect(url_for('dashboard'))
 
     # Construcción de líneas
-    # 1) obtener almacén seleccionado (o por defecto)
-    selected_whs = request.form.get('warehouse', session['warehouses'][0])
-    # 2) obtener cardcode para ese almacén
-    conn_db = get_db_connection(); cur_db = conn_db.cursor()
-    cur_db.execute(
-        "SELECT cardcode FROM warehouses WHERE whscode=%s",
-        (selected_whs,)
-    )
-    row = cur_db.fetchone()
-    conn_db.close()
-    cardcode = row['cardcode'] if row and row.get('cardcode') else session.get('cardcode')
+    selected_whs = request.form.get('warehouse')
+    if not selected_whs:
+        flash('Por favor selecciona un almacén.', 'error')
+        return redirect(url_for('dashboard'))
+    cardcode = request.form.get('cardcode')
+    allowed_cards = [c['cardcode'] for c in session.get('warehouse_cards', {}).get(selected_whs, [])]
+    if cardcode not in allowed_cards:
+        flash('Almacén o cliente inválido.', 'error')
+        return redirect(url_for('dashboard'))
 
     # construcción de líneas usando selected_whs
     lines = []
@@ -252,8 +246,6 @@ def submit():
         'DocDueDate':    date,
         'DocumentLines': lines
     }
-
-    order = {'CardCode': session.get('cardcode'), 'DocDate': date, 'DocDueDate': date, 'DocumentLines': lines}
 
     try:
         # 1) Sesión híbrida: requests.Session
