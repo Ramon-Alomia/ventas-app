@@ -76,17 +76,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (whSelect) {
-    whSelect.addEventListener('change', e => {
-      const wh = e.target.value;
-      renderCardcode(wh);
-      loadItems(wh);
-    });
-
-    if (whSelect.tagName !== 'SELECT') {
+    const handleWhChange = () => {
       const wh = whSelect.value;
-      renderCardcode(wh);
-      loadItems(wh);
-    }
+      if (wh) {
+        renderCardcode(wh);
+        loadItems(wh);
+      }
+    };
+
+    whSelect.addEventListener('change', handleWhChange);
+
+    // Cargar items iniciales si el almacén ya está preseleccionado
+    handleWhChange();
   }
 
   addBtn.addEventListener('click', () => {
