@@ -107,6 +107,24 @@ def get_db_connection():
         raise RuntimeError("DATABASE_URL no está configurada en las Environment Variables")
     return psycopg2.connect(db_url, sslmode='require', cursor_factory=RealDictCursor)
 
+# Verificar que el usuario siga activo antes de cada solicitud
+@app.before_request
+def ensure_user_is_active():
+    if request.endpoint in ('login', 'static'):
+        return
+    username = session.get('username')
+    if not username:
+        return
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT active FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row or not row['active']:
+        session.clear()
+        flash('Tu usuario ha sido desactivado.', 'error')
+        return redirect(url_for('login'))
+
 # Rutas de la aplicación
 @app.route("/")
 def index():
