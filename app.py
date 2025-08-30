@@ -148,10 +148,10 @@ def refresh_user_warehouses():
     warehouses = {}
     for r in rows:
         wh = r['whscode'].strip()
-        warehouses.setdefault(wh, []).append({
-            'cardcode': r['cardcode'].strip(),
-            'whsdesc': r['whsdesc']
-        })
+        cardcodes = [c.strip() for c in r['cardcode'].split(',')]
+        whsdescs = [d.strip() for d in r['whsdesc'].split(',')]
+        for cc, desc in zip(cardcodes, whsdescs):
+            warehouses.setdefault(wh, []).append({'cardcode': cc, 'whsdesc': desc})
     session['warehouses'] = list(warehouses.keys())
     session['warehouse_cards'] = warehouses
 
