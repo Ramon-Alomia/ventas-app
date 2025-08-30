@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
   <meta charset="utf-8">
   <title>Portal de Venta Diaria</title>
@@ -27,18 +26,12 @@
       background-attachment: fixed;
       display: flex;
       flex-direction: column;
-      /* <-- add this line */
-      justify-content: center;
-      align-items: center;
+      justify-content: flex-start; /* el contenido empieza arriba */
+      align-items: center;        /* centrar horizontal */
       text-align: center;
       gap: 1.5rem;
       min-height: 100vh;
-      justify-content: flex-start;
-      /* el contenido empieza arriba */
-      align-items: center;
-      /* si quieres centrar horizontal */
-      padding: 1rem;
-      /* un poco de aire */
+      padding: 1rem;             /* un poco de espacio */
       overflow-y: auto;
     }
 
@@ -99,98 +92,94 @@
     }
   </style>
 </head>
-
 <body>
   <h1>Bienvenido, {{ username }}</h1>
   <nav>
-      {% if role == 'admin' %}
+    {% if role == 'admin' %}
       <a href="{{ url_for('admin') }}">Administración</a> |
-      {% endif %}
-      <a href="{{ url_for('history') }}">Historial</a> |
-      <a href="{{ url_for('logout') }}">Cerrar sesión</a>
-    </nav>
-
-    <!-- CAMBIO 1: bloque para mostrar mensajes flash -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    <ul>
-      {% for category, msg in messages %}
-      <li {% if category=='error' %} style="color:red;" {% else %} style="color:green;" {% endif %}>
-        {{ msg }}
-      </li>
-      {% endfor %}
-    </ul>
     {% endif %}
-    {% endwith %}
+    <a href="{{ url_for('history') }}">Historial</a> |
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+  </nav>
 
-    <p>Registra tus ventas de hoy (varios menús):</p>
+  <!-- Mensajes flash -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+        {% for category, msg in messages %}
+          <li {% if category=='error' %} style="color:red;" {% else %} style="color:green;" {% endif %}>
+            {{ msg }}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
 
-    <form action="{{ url_for('submit') }}" method="post" id="orderForm">
-      <!-- Fecha única para toda la orden -->
-      <label>Fecha:<br>
-        <input type="date" name="date" required>
-      </label>
-      <br><br>
+  <p>Registra tus ventas de hoy (varios menús):</p>
 
-      <!-- WAREHOUSE: Selección de almacén según sesión -->
-      <label>Almacén:<br>
-        {% set wh_list = warehouses.keys()|list %}
-        {% if wh_list|length > 1 %}
-          <select name="warehouse" id="warehouse" required>
-            <option value="" disabled selected>Selecciona un almacén…</option>
-            {% for wh in wh_list %}
-              <option value="{{ wh }}">{{ wh }}</option>
-            {% endfor %}
-          </select>
-        {% else %}
-          {# Si sólo hay uno, ocultamos el select y enviamos valor fijo #}
-          <input type="hidden" name="warehouse" id="warehouse" value="{{ wh_list[0] or '' }}">
-          <strong>{{ wh_list[0] or '—' }}</strong>
-        {% endif %}
-      </label>
-      <div id="cardcode-container"></div>
-      <br><br>
+  <form action="{{ url_for('submit') }}" method="post" id="orderForm">
+    <!-- Fecha única para toda la orden -->
+    <label>Fecha:<br>
+      <input type="date" name="date" required>
+    </label>
+    <br><br>
+
+    <!-- WAREHOUSE: Selección de almacén según sesión -->
+    <label>Almacén:<br>
+      {% set wh_list = warehouses.keys()|list %}
+      {% if wh_list|length > 1 %}
+        <select name="warehouse" id="warehouse" required>
+          <option value="" disabled selected>Selecciona un almacén…</option>
+          {% for wh in wh_list %}
+            <option value="{{ wh }}">{{ wh }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        {# Si sólo hay uno, ocultamos el select y enviamos valor fijo #}
+        <input type="hidden" name="warehouse" id="warehouse" value="{{ wh_list[0] or '' }}">
+        <strong>{{ wh_list[0] or '—' }}</strong>
+      {% endif %}
+    </label>
+    <div id="cardcode-container"></div>
+    <br><br>
       
-      <table id="lines">
-        <tr>
-          <th>Tipo de comida</th>
-          <th>Cantidad</th>
-          <th>Acción</th>
-        </tr>
-          <tr class="line">
-            <td>
-              <select name="item_code" required>
-                <option value="" disabled selected>Selecciona un menú…</option>
-              </select>
-            </td>
-            <td>
-            <input type="number" name="quantity" min="1" required
-              oninvalid="this.setCustomValidity('Introduce una cantidad mayor a cero')"
-              oninput="this.setCustomValidity('')" />
-          </td>
-          <td>
-            <button type="button" class="remove">–</button>
-          </td>
-        </tr>
-      </table>
+    <table id="lines">
+      <tr>
+        <th>Tipo de comida</th>
+        <th>Cantidad</th>
+        <th>Acción</th>
+      </tr>
+      <tr class="line">
+        <td>
+          <select name="item_code" required>
+            <option value="" disabled selected>Selecciona un menú…</option>
+          </select>
+        </td>
+        <td>
+          <input type="number" name="quantity" min="1" required />
+        </td>
+        <td>
+          <button type="button" class="remove">–</button>
+        </td>
+      </tr>
+    </table>
 
-      <p>
-        <button type="button" id="addLine">Añadir línea +</button>
-      </p>
-      <button type="submit">Enviar a SAP</button>
-    </form>
-
-    <!-- CAMBIO 2: enlazar historial y Cerrar sesión dentro del body -->
     <p>
-      <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
-      <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+      <button type="button" id="addLine">Añadir línea +</button>
     </p>
+    <button type="submit">Enviar a SAP</button>
+  </form>
 
+  <p>
+    <a href="{{ url_for('history') }}">Ver historial de órdenes →</a> |
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+  </p>
 
-    <script>
-      const warehousesData = {{ warehouses | tojson }};
-    </script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-  </body>
-
+  <!-- Datos de almacenes embebidos como JSON -->
+  <script id="warehouses-json" type="application/json">
+    {{ warehouses | tojson }}
+  </script>
+  <!-- Carga del script externo de Dashboard -->
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
 </html>

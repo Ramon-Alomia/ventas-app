@@ -8,6 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentItems = [];
 
+  // Obtener datos de almacenes del script JSON embebido
+  const warehousesDataElement = document.getElementById('warehouses-json');
+  const warehousesData = warehousesDataElement ? JSON.parse(warehousesDataElement.textContent) : {};
+
   function fillItemSelect(sel) {
     sel.innerHTML = '<option value="" disabled selected>Selecciona un menú…</option>';
     currentItems.forEach(it => {
@@ -16,9 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
       opt.textContent = it.description;
       sel.appendChild(opt);
     });
-
     if (currentItems.length > 0) {
-      sel.disabled = false;
       sel.removeAttribute('disabled');
     } else {
       sel.disabled = true;
@@ -46,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const options = warehousesData[whscode] || [];
     cardcodeContainer.innerHTML = '';
     if (options.length > 1) {
+      // Crear select de CardCode si hay múltiples opciones
       const select = document.createElement('select');
       select.name = 'cardcode';
       select.id = 'cardcode';
@@ -64,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       cardcodeContainer.appendChild(select);
     } else if (options.length === 1) {
+      // Si solo hay una opción, ponerla como valor fijo
       const input = document.createElement('input');
       input.type = 'hidden';
       input.name = 'cardcode';
@@ -81,11 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (wh) {
         renderCardcode(wh);
         loadItems(wh);
+      } else {
+        // Si no hay almacén seleccionado, limpiar items y cardcode
+        currentItems = [];
+        updateItemSelects();
+        cardcodeContainer.innerHTML = '';
       }
     };
-
     whSelect.addEventListener('change', handleWhChange);
-
     // Cargar items iniciales si el almacén ya está preseleccionado
     handleWhChange();
   }
@@ -93,7 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
   addBtn.addEventListener('click', () => {
     const first = table.querySelector('.line');
     const clone = first.cloneNode(true);
+    // Limpiar el valor de cantidad en la nueva línea
     clone.querySelector('input[name="quantity"]').value = '';
+    // Preparar el select de ítems de la nueva línea con los ítems actuales
     const sel = clone.querySelector('select[name="item_code"]');
     fillItemSelect(sel);
     table.appendChild(clone);
@@ -107,5 +116,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
-});
 
+  // Eventos para mensajes de validación personalizados (sin atributos inline)
+  document.addEventListener('invalid', (e) => {
+    if (e.target.matches('input[name="quantity"]')) {
+      e.target.setCustomValidity('Introduce una cantidad mayor a cero');
+    }
+  }, true);
+  document.addEventListener('input', (e) => {
+    if (e.target.matches('input[name="quantity"]')) {
+      e.target.setCustomValidity('');
+    }
+  });
+});
