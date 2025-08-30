@@ -157,7 +157,10 @@ def refresh_user_warehouses():
 
 # Rutas de la aplicación
 @app.route("/")
+
 def index():
+    if "username" in session:
+        return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
 
 @app.route("/login", methods=["GET", "POST"])
