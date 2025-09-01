@@ -118,6 +118,7 @@
   <p>Registra tus ventas de hoy (varios menús):</p>
 
   <form action="{{ url_for('submit') }}" method="post" id="orderForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Fecha única para toda la orden -->
     <label>Fecha:<br>
       <input type="date" name="date" required>

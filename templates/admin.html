@@ -40,11 +40,13 @@
       <td>{{ u.warehouses|join(', ') }}</td>
       <td>
         <form method="post" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form_type" value="toggle_user">
           <input type="hidden" name="username" value="{{ u.username }}">
           <button type="submit">{{ 'Desactivar' if u.active else 'Activar' }}</button>
         </form>
         <form method="post" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form_type" value="update_user_wh">
           <input type="hidden" name="username" value="{{ u.username }}">
           <input type="text" name="warehouses" value="{{ u.warehouses|join(',') }}" placeholder="WH1,WH2">
@@ -57,6 +59,7 @@
 
   <h3>Agregar Usuario</h3>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form_type" value="add_user">
     Usuario: <input type="text" name="username" required>
     Contraseña: <input type="password" name="password" required>
@@ -67,7 +70,7 @@
 
   <h2>Almacenes</h2>
   <table>
-        <tr><th>WhsCode</th><th>CardCode</th><th>Nombre</th><th>Acciones</th></tr>
+    <tr><th>WhsCode</th><th>CardCode</th><th>Nombre</th><th>Acciones</th></tr>
     {% for w in warehouses %}
     <tr>
       <td>{{ w.whscode }}</td>
@@ -75,6 +78,7 @@
       <td>{{ w.whsdesc }}</td>
       <td>
         <form method="post" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form_type" value="delete_wh">
           <input type="hidden" name="whscode" value="{{ w.whscode }}">
           <button type="submit">Eliminar</button>
@@ -86,6 +90,7 @@
 
   <h3>Agregar / Actualizar Almacén</h3>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form_type" value="add_wh">
     WhsCode: <input type="text" name="whscode" required>
     CardCode: <input type="text" name="cardcode" required>
@@ -107,6 +112,7 @@
       </td>
       <td>
         <form method="post" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form_type" value="delete_item">
           <input type="hidden" name="itemcode" value="{{ i.itemcode }}">
           <button type="submit">Eliminar</button>
@@ -118,6 +124,7 @@
 
   <h3>Agregar / Actualizar Item y Almacenes</h3>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form_type" value="add_item">
     ItemCode: <input type="text" name="itemcode" required>
     Descripción: <input type="text" name="description" required>
@@ -127,6 +134,7 @@
 
   <h3>Eliminar Item de Almacén</h3>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form_type" value="delete_item_wh">
     ItemCode: <input type="text" name="itemcode" required>
     WhsCode: <input type="text" name="whscode" required>

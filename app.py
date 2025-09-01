@@ -16,6 +16,8 @@ from flask_talisman import Talisman
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 import logging
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import generate_csrf
 
 # Se define ruta base para archivos de certificado
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,14 +93,28 @@ if not tmp_secret:
     raise RuntimeError("SECRET_KEY no está configurada en las Environment Variables")
 app.secret_key = tmp_secret
 
-# Configuración Service Layer SAP
-SERVICE_LAYER_URL = os.getenv(
-    "SERVICE_LAYER_URL",
-    "https://hwvdvsbo04.virtualdv.cloud:50000/b1s/v1"
-).rstrip("/")
-COMPANY_DB  = os.getenv("COMPANY_DB", "PRDBERSA")
-SL_USER     = os.getenv("SL_USER", "brsuser02")
-SL_PASSWORD = os.getenv("SL_PASSWORD", "$PniBvQ7rBa6!A")
+# Habilitar protección CSRF
+csrf = CSRFProtect(app)
+
+# Configuración Service Layer SAP (credenciales desde variables de entorno)
+SERVICE_LAYER_URL = os.getenv("SERVICE_LAYER_URL")
+if not SERVICE_LAYER_URL:
+    raise RuntimeError("SERVICE_LAYER_URL no está configurada en las Environment Variables")
+SERVICE_LAYER_URL = SERVICE_LAYER_URL.rstrip("/")
+COMPANY_DB = os.getenv("COMPANY_DB")
+if not COMPANY_DB:
+    raise RuntimeError("COMPANY_DB no está configurada en las Environment Variables")
+SL_USER = os.getenv("SL_USER")
+if not SL_USER:
+    raise RuntimeError("SL_USER no está configurada en las Environment Variables")
+SL_PASSWORD = os.getenv("SL_PASSWORD")
+if not SL_PASSWORD:
+    raise RuntimeError("SL_PASSWORD no está configurada en las Environment Variables")
+
+@app.after_request
+def add_csrf_cookie(response):
+    response.set_cookie('csrf_token', generate_csrf())
+    return response
 
 # Conexión a PostgreSQL
 def get_db_connection():
@@ -157,7 +173,6 @@ def refresh_user_warehouses():
 
 # Rutas de la aplicación
 @app.route("/")
-
 def index():
     if "username" in session:
         return redirect(url_for("dashboard"))
@@ -255,7 +270,7 @@ def submit():
         # 1) Sesión híbrida: requests.Session
         sl = requests.Session()
         sl.verify = False
-        sl.headers.update({'Content-Type':'application/json', 'Accept':'application/json'})
+        sl.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})
 
         # Login
         auth = sl.post(f"{SERVICE_LAYER_URL}/Login", json={
@@ -277,7 +292,7 @@ def submit():
         app.logger.debug('Metadata Orders snippet: %s', meta.text[:300])
 
         # 4) Envío de la orden
-        sl.headers.update({'Prefer':'return=representation'})
+        sl.headers.update({'Prefer': 'return=representation'})
         resp = sl.post(f"{SERVICE_LAYER_URL}/Orders", json=order)
         app.logger.debug('Response POST Orders %s — %s', resp.status_code, resp.text[:300])
         resp.raise_for_status()
@@ -384,7 +399,6 @@ def history():
         warehouses=warehouses,
         users_options=users_options,
     )
-
 
 @app.route("/history/export")
 def export_history():
@@ -604,7 +618,6 @@ def get_items():
         itm['warehouses'].append({'whscode': r['whscode']})
     return jsonify(list(items.values()))
 
-
 @app.route("/items/<itemcode>", methods=["GET"])
 def get_item(itemcode):
     if 'username' not in session:
@@ -633,7 +646,6 @@ def get_item(itemcode):
         item['warehouses'].append({'whscode': r['whscode']})
     return jsonify(item)
 
-
 @app.route("/warehouses/<whscode>/items", methods=["GET"])
 def items_by_wh(whscode):
     if 'username' not in session:
@@ -660,7 +672,6 @@ def items_by_wh(whscode):
         }
         for r in rows
     ])
-
 
 @app.route("/items", methods=["POST", "PUT"])
 @roles_required('admin')
@@ -702,7 +713,6 @@ def upsert_item():
         )
     conn.commit(); cur.close(); conn.close()
     return jsonify({'status': 'ok'})
-
 
 @app.route("/warehouses/<whscode>/items", methods=["POST", "PUT"])
 @roles_required('admin')
